@@ -4,13 +4,13 @@ A fire / police dispatch game on the **real map**. Put stations at real addresse
 
 The web app is responsive (desktop side panel, phone bottom sheet) so one codebase covers both. It can be wrapped as an Android app with Capacitor once the web version is solid.
 
-## Status: Milestone 1 ✅ + Milestone 2 — multi-region dispatch centers ✅
+## Status: Milestone 1 ✅ + Milestone 2 — multi-region dispatch centers ✅ + Milestone 3 — auto-dispatch AI ✅
 
 You can do the whole loop:
 
 1. **Place a station.** Search a real address (OpenStreetMap / Nominatim) or click the map. Pick a starting fleet. The Dent County FPD (Salem, MO) preset is the default.
 2. **Calls come in** inside the station's first-due radius. Each one is snapped to the nearest drivable road and reverse-geocoded to a CAD-style address, e.g. "1788 County Road 238, Dent County, MO". You only get call types your fleet can actually handle.
-3. **Dispatch manually.** Available units are listed by estimated ETA, which includes crew turnout time. *Select recommended* pre-checks the closest units that cover the call; you confirm the dispatch.
+3. **Dispatch manually, or flip on auto-dispatch.** Available units are listed by estimated ETA, which includes crew turnout time. *Select recommended* pre-checks the closest units that cover the call; you confirm the dispatch. Or turn on **Auto-dispatch** in ⚙ settings and the same recommended set is assigned to every call on its own — see Milestone 3 below. The two aren't exclusive: with auto-dispatch on you can still manually dispatch extra units or release ones it sent.
 4. **Units drive real roads** (OSRM) through CAD statuses: `DP` turnout → `ER` en route → `OS` on scene.
 5. **Work progresses** only while the on-scene units meet the requirement: unit roles, total tank water, and personnel.
 6. **Mark complete.** Units go `AV` (returning) and drive home, where they become available again. Units that are driving home can be reassigned on the way.
@@ -83,6 +83,17 @@ Under the hood (`src/sim/engine.ts`):
 
 Within one center, call generation is still per-station (each station's own first-due radius decides where its calls land), so this doesn't change single-station behavior — it only stops two *unrelated* regions from leaking calls or units into each other.
 
+## Auto-dispatch AI (Milestone 3)
+
+Turn on **Auto-dispatch** in ⚙ settings (off by default) and every open call is handled the same way "Select recommended" + Dispatch would, without you touching it:
+
+- Once a second, the pass (`autoDispatchPass` in `src/store.ts`) walks every call that isn't fully covered yet, **oldest first**, so an older call isn't repeatedly leapfrogged by a newer one competing for the same nearby units.
+- For each one it calls `candidatesForMission()` (`src/sim/engine.ts`) for the ranked, center-scoped pool of available units, then `recommendUnits()` (already powering "Select recommended") to pick the set that covers the requirement, and dispatches them.
+- **Keeping coverage:** within an ETA/suitability tier, `candidatesForMission` pushes a unit to the back of the list if it's the *only* available unit in the center that can fill one of its roles — so a borderline grass fire doesn't reflexively take a district's last brush truck when a backed-up engine would do. It still takes the sole-cover unit when nothing else can fill the slot; a call doesn't go uncovered for the sake of keeping a reserve.
+- Manual dispatch and release work exactly as before, any time — auto-dispatch only fills in gaps a human hasn't gotten to, and a mission already busy with an in-flight manual dispatch is skipped for that pass.
+
+**Not yet built:** real road-ETA ranking for the auto pass (it uses the same straight-line estimate "Select recommended" shows before you confirm — good enough to rank candidates, not to show a trustworthy ETA on its own) and move-ups (shifting a unit to cover a newly-undercovered first-due area after a dispatch, rather than just reacting call-by-call).
+
 ## Reference data — what's real and what's a placeholder
 
 **Dent County FPD** (`dent-county-fpd` preset) is real, sourced data: station at 2 South Main Street, Salem, MO 65560 (United Way 211 directory; Fire Chief Dennis Floyd), and the full apparatus roster — Engine 8010/8020/8030, Ladder 8012, Pumper Tankers 8013/8023, Rescue 8016, Brush 8018/8028/8038, Truck 8026 — sourced from the district's own Facebook post and a community fire-apparatus roster. Two things are flagged **provisional** in `src/sim/data/apparatus.ts` rather than presented as confirmed:
@@ -107,6 +118,6 @@ The public endpoints are fine for development but **not for production traffic**
 ## Roadmap
 
 - **M2 — Multi-region ✅.** Several stations at once, anywhere in the world (Salem + Alaska). *Dispatch centers* group stations by region, each with its own call pool and unit pool, so distant regions don't interfere; mutual aid between neighbouring centers is an explicit choice made when placing a station. See "Multi-region dispatch centers" above.
-- **M3 — Auto-dispatch AI.** Analyze each call (required roles, water, personnel, distance, availability) and *actually assign* units, with a manual override. `recommendUnits()` already finds the closest set that covers a call. Next steps: road-ETA ranking, keeping coverage (don't strip a district bare), and move-ups.
+- **M3 — Auto-dispatch AI ✅.** An opt-in setting that analyzes each open call (required roles, water, personnel, distance, availability) and assigns the recommended units automatically, oldest call first, while keeping a center from being stripped of its last unit of a kind when a backed-up one would do. Manual dispatch and release still work any time. See "Auto-dispatch AI" above. Still to come: real road-ETA ranking for the auto pass, and move-ups (repositioning a unit to cover a newly-thin first-due area rather than reacting call-by-call).
 - **M4 — Depth.** Calls that escalate when left unattended (a grass fire becomes a woodland fire), a credit economy for buying stations and apparatus, patrol units that roam beats instead of waiting in quarters, and a tanker shuttle / water-supply model.
 - **M5 — Accounts & Android.** Server-side persistence for one save across devices, then a Capacitor wrapper. `vite.config.ts` already uses a relative `base`, so the bundle runs from `capacitor://`.

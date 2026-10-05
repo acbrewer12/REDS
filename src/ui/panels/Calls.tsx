@@ -1,17 +1,10 @@
 import { useState } from 'react';
 import { getSpec } from '../../sim/data/apparatus';
 import { getMissionType } from '../../sim/data/missions';
-import {
-  estimateRoute,
-  etaSeconds,
-  isAvailable,
-  missionUnits,
-  turnoutSeconds,
-  unitPosition,
-} from '../../sim/engine';
-import { formatDistance, haversineMeters } from '../../sim/geo';
-import { describeShortfall, matchRequirements, rankCandidates, recommendUnits } from '../../sim/requirements';
-import type { GameState, Mission, Unit } from '../../sim/types';
+import { candidatesForMission, missionUnits, turnoutSeconds } from '../../sim/engine';
+import { formatDistance } from '../../sim/geo';
+import { describeShortfall, matchRequirements, recommendUnits } from '../../sim/requirements';
+import type { Mission } from '../../sim/types';
 import { useStore } from '../../store';
 import { MissionChip, specSummary, UNIT_STATUS, UnitChip } from '../common';
 import { formatClock, formatDuration } from '../format';
@@ -109,30 +102,6 @@ function MissionList() {
   );
 }
 
-interface Candidate {
-  unit: Unit;
-  etaSec: number;
-  distanceM: number;
-}
-
-/**
- * Available units, closest (by estimated ETA) first, then best-suited.
- * Scoped to the mission's dispatch center: units housed at a station in a
- * different, unrelated center (e.g. a distant "Alaska" region) never show
- * up as candidates here.
- */
-function availableCandidates(game: GameState, mission: Mission): Candidate[] {
-  const centerId = game.stations[mission.stationId]?.centerId;
-  const candidates = Object.values(game.units)
-    .filter((unit) => isAvailable(unit) && (!centerId || game.stations[unit.stationId]?.centerId === centerId))
-    .map((unit) => {
-      const from = unitPosition(unit, game.clock);
-      const route = estimateRoute(from, mission.position);
-      return { unit, etaSec: etaSeconds(game, unit, route), distanceM: haversineMeters(from, mission.position) };
-    });
-  return rankCandidates(getMissionType(mission.typeId), candidates);
-}
-
 function MissionDetail({ missionId }: { missionId: string }) {
   const game = useStore((s) => s.game);
   const busy = useStore((s) => s.ui.busy);
@@ -150,7 +119,7 @@ function MissionDetail({ missionId }: { missionId: string }) {
   const onScene = assigned.filter((u) => u.status === 'on_scene');
   const sceneResult = matchRequirements(type, onScene);
   const assignedResult = matchRequirements(type, assigned);
-  const candidates = availableCandidates(game, mission);
+  const candidates = candidatesForMission(game, mission);
   const firstDue = game.stations[mission.stationId];
   const canDispatch = mission.status !== 'resolved';
 

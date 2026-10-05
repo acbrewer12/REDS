@@ -5,6 +5,7 @@ import {
   addMission,
   addStation,
   addUnit,
+  candidatesForMission,
   closeMission,
   createGame,
   dispatchUnit,
@@ -175,6 +176,56 @@ describe('engine — single-station loop', () => {
     expect(state.units[brush.id]!.status).toBe('in_quarters'); // was still turning out
     expect(state.credits).toBe(0);
     expect(state.stats.cancelled).toBe(1);
+  });
+});
+
+describe('engine — auto-dispatch candidate ranking (Milestone 3)', () => {
+  /** Two engines and one lone brush truck, all in quarters at the same station. */
+  function setupGrassFire() {
+    const rng = mulberry32(9);
+    const { state: withCenter, centerId } = addDispatchCenter(createGame(Date.UTC(2026, 9, 5, 14)), 'Salem Dispatch');
+    let { state, stationId } = addStation(
+      withCenter,
+      {
+        name: 'Test FPD',
+        discipline: 'fire',
+        address: 'Salem, MO',
+        position: SALEM,
+        staffing: 'volunteer',
+        responseRadiusKm: 15,
+        centerId,
+      },
+      rng,
+    );
+    state = addUnit(state, stationId, 'engine-t1', 'Engine A');
+    state = addUnit(state, stationId, 'engine-t1', 'Engine B');
+    state = addUnit(state, stationId, 'engine-t6', 'Brush 1'); // the only brush truck
+    // All units start at the station, so a mission there gives every unit
+    // the same (zero) travel distance and the same turnout — a clean tie.
+    const added = addMission(state, { stationId, typeId: 'grass-fire', position: SALEM, narrative: '', workRequiredSec: 600 }, 'Salem, MO');
+    return { state: added.state, missionId: added.missionId };
+  }
+
+  it('prefers a unit with backup over a center’s sole cover for its role, all else equal', () => {
+    const { state, missionId } = setupGrassFire();
+    const ranked = candidatesForMission(state, state.missions[missionId]!).map((c) => c.unit.callsign);
+    // Brush 1 is the best *suited* unit for a grass fire (primary role), but
+    // it's the only brush truck in the center, so coverage pushes it behind
+    // the two engines, which have each other as backup.
+    expect(ranked).toEqual(['Engine A', 'Engine B', 'Brush 1']);
+  });
+
+  it('still recommends the sole-cover unit when nothing else can fill the slot', () => {
+    const { state, missionId } = setupGrassFire();
+    const mission = state.missions[missionId]!;
+    // Pull both engines out of quarters (dispatch them elsewhere), leaving
+    // only the brush truck available.
+    const engineA = Object.values(state.units).find((u) => u.callsign === 'Engine A')!.id;
+    const engineB = Object.values(state.units).find((u) => u.callsign === 'Engine B')!.id;
+    let s = dispatchUnit(state, engineA, mission.id, estimateRoute(SALEM, SALEM));
+    s = dispatchUnit(s, engineB, mission.id, estimateRoute(SALEM, SALEM));
+    const ranked = candidatesForMission(s, mission).map((c) => c.unit.callsign);
+    expect(ranked).toEqual(['Brush 1']);
   });
 });
 

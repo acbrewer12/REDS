@@ -202,6 +202,17 @@ function SettingsMenu() {
               <span className="muted small block">Release units as soon as a call is under control.</span>
             </span>
           </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.autoDispatch}
+              onChange={(e) => updateSettings({ autoDispatch: e.target.checked })}
+            />
+            <span>
+              Auto-dispatch
+              <span className="muted small block">Assign the recommended units to every call automatically.</span>
+            </span>
+          </label>
           <label className="field">
             <span>Map style</span>
             <select

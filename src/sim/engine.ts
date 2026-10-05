@@ -6,7 +6,7 @@ import { getSpec } from './data/apparatus';
 import { getMissionType, MISSION_TYPES } from './data/missions';
 import { POLICE_TURNOUT_SECONDS, TURNOUT_SECONDS } from './data/presets';
 import { cumulativeDistances, haversineMeters, randomPointInRadius, tripPosition } from './geo';
-import { matchRequirements } from './requirements';
+import { matchRequirements, rankCandidates } from './requirements';
 import type {
   Discipline,
   GameState,
@@ -140,6 +140,48 @@ export function missionUnits(state: GameState, m: Mission): Unit[] {
 
 export function isOpen(m: Mission): boolean {
   return m.status !== 'completed' && m.status !== 'cancelled';
+}
+
+export interface DispatchCandidate {
+  unit: Unit;
+  etaSec: number;
+  distanceM: number;
+}
+
+/**
+ * Units available to respond to a mission, scoped to its dispatch center
+ * (a unit housed in an unrelated, far-away region never shows up), ranked
+ * closest/best-suited first using straight-line ETA estimates — fast enough
+ * to run every tick; a real road ETA is only fetched once a dispatch is
+ * confirmed.
+ *
+ * Within an ETA/suitability tier, a unit that is the *only* available cover
+ * for one of its roles in the center is pushed to the back. That alone
+ * keeps both "Select recommended" and the auto-dispatch AI from reflexively
+ * grabbing a district's last brush truck for a borderline call — they'll
+ * still take it if nothing else can cover the slot, just not before trying
+ * every unit that has backup.
+ */
+export function candidatesForMission(state: GameState, mission: Mission): DispatchCandidate[] {
+  const centerId = state.stations[mission.stationId]?.centerId;
+  const pool = Object.values(state.units).filter(
+    (unit) => isAvailable(unit) && (!centerId || state.stations[unit.stationId]?.centerId === centerId),
+  );
+  const roleAvailability = new Map<string, number>();
+  for (const unit of pool) {
+    for (const role of getSpec(unit.specId).roles) roleAvailability.set(role, (roleAvailability.get(role) ?? 0) + 1);
+  }
+  const isSoleCover = (unit: Unit) => getSpec(unit.specId).roles.some((r) => roleAvailability.get(r) === 1);
+
+  const candidates = pool.map((unit) => {
+    const from = unitPosition(unit, state.clock);
+    const route = estimateRoute(from, mission.position);
+    return { unit, etaSec: etaSeconds(state, unit, route), distanceM: haversineMeters(from, mission.position) };
+  });
+  const ranked = rankCandidates(missionType(mission), candidates);
+  // Array.prototype.sort is stable, so this only reorders across the sole/not-sole
+  // boundary and leaves the existing ETA/suitability order intact within each group.
+  return [...ranked].sort((a, b) => Number(isSoleCover(a.unit)) - Number(isSoleCover(b.unit)));
 }
 
 // ── dispatch centers ───────────────────────────────────────────────────

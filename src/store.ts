@@ -1,15 +1,18 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import { getMissionType } from './sim/data/missions';
 import { FLEET_PRESETS_BY_ID } from './sim/data/presets';
 import {
   addDispatchCenter,
   addMission,
   addStation,
   addUnit,
+  candidatesForMission,
   closeMission,
   createGame,
   dispatchUnit,
   isAvailable,
+  missionUnits,
   planCall,
   releaseUnit,
   removeStation,
@@ -22,6 +25,7 @@ import {
   type NewStation,
   type Route,
 } from './sim/engine';
+import { matchRequirements, recommendUnits } from './sim/requirements';
 import type { GameState, LatLng, Station } from './sim/types';
 import { getRoute, reverseGeocode, snapToRoad } from './services/mapServices';
 
@@ -80,6 +84,13 @@ export interface Settings {
   roadRouting: boolean;
   /** Clear calls automatically once the work is done. */
   autoClear: boolean;
+  /**
+   * Analyze every open call (required roles, water, personnel, distance,
+   * availability) and assign units automatically, the same way "Select
+   * recommended" + Dispatch would. Manual dispatch and release always
+   * still work — this just means a call doesn't have to wait on you.
+   */
+  autoDispatch: boolean;
   baseLayer: BaseLayer;
 }
 
@@ -199,10 +210,49 @@ export const useStore = create<Store>()(
         setGame((g) => addMission(g, { ...plan, position }, address).state);
       };
 
+      // advance() runs several times a second; a pass takes real time (route
+      // lookups), so a flag — not component state — keeps passes from piling up.
+      let autoDispatchRunning = false;
+
+      /**
+       * The M3 auto-dispatch AI: walk every open call that isn't fully
+       * covered yet, oldest first (so an older call isn't repeatedly
+       * leapfrogged by newer ones for the same nearby units), and assign
+       * the same recommended set "Select recommended" would — closest and
+       * best-suited units first, holding back a center's last unit of a
+       * kind until nothing else can fill that slot. Purely additive: manual
+       * dispatch and release work exactly as before, any time.
+       */
+      const autoDispatchPass = async () => {
+        if (autoDispatchRunning) return;
+        autoDispatchRunning = true;
+        try {
+          const openMissionIds = Object.values(get().game.missions)
+            .filter((m) => m.status === 'pending' || m.status === 'dispatched')
+            .sort((a, b) => a.createdAt - b.createdAt)
+            .map((m) => m.id);
+          for (const missionId of openMissionIds) {
+            if (!get().settings.autoDispatch) return; // turned off mid-pass
+            if (get().ui.busy[missionId]) continue;
+            const game = get().game;
+            const mission = game.missions[missionId];
+            if (!mission || (mission.status !== 'pending' && mission.status !== 'dispatched')) continue;
+            const type = getMissionType(mission.typeId);
+            const assigned = missionUnits(game, mission);
+            if (matchRequirements(type, assigned).met) continue;
+            const candidates = candidatesForMission(game, mission).map((c) => c.unit);
+            const pick = recommendUnits(type, assigned, candidates);
+            if (pick && pick.length > 0) await get().dispatch(missionId, pick.map((u) => u.id));
+          }
+        } finally {
+          autoDispatchRunning = false;
+        }
+      };
+
       return {
         game: createGame(Date.now()),
         speed: 1,
-        settings: { roadRouting: true, autoClear: false, baseLayer: 'streets' },
+        settings: { roadRouting: true, autoClear: false, autoDispatch: false, baseLayer: 'streets' },
         ui: initialUi(),
 
         advance(realDtMs) {
@@ -217,6 +267,7 @@ export const useStore = create<Store>()(
               if (m.status === 'resolved' && !get().ui.busy[m.id]) void get().closeMission(m.id, 'completed');
             }
           }
+          if (settings.autoDispatch) void autoDispatchPass();
         },
 
         setSpeed: (speed) => set({ speed }),
