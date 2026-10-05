@@ -100,6 +100,17 @@ export interface Unit {
 
 export type StaffingModel = 'career' | 'combination' | 'volunteer';
 
+/**
+ * A group of stations that share one call pool and one dispatch-eligible
+ * unit pool — e.g. "Salem, MO" vs. "Anchorage, AK". Stations in different
+ * centers never see each other's calls or units; joining the same center
+ * (instead of starting a new one) is how a player opts in to mutual aid.
+ */
+export interface DispatchCenter {
+  id: string;
+  name: string;
+}
+
 export interface Station {
   id: string;
   name: string;
@@ -111,6 +122,8 @@ export interface Station {
   responseRadiusKm: number;
   /** Sim time (ms) the next call should be generated in this station's area. */
   nextCallAt: number;
+  /** Dispatch center this station belongs to — see {@link DispatchCenter}. */
+  centerId: string;
 }
 
 /**
@@ -183,11 +196,12 @@ export interface LogEntry {
 }
 
 export interface GameState {
-  version: 1;
+  version: 2;
   /** Real-world epoch (ms) that sim time 0 corresponds to, for CAD clock display. */
   epoch: number;
   /** Elapsed sim time in ms. */
   clock: number;
+  dispatchCenters: Record<string, DispatchCenter>;
   stations: Record<string, Station>;
   units: Record<string, Unit>;
   missions: Record<string, Mission>;

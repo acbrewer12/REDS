@@ -4,7 +4,7 @@ A fire / police dispatch game on the **real map**. Put stations at real addresse
 
 The web app is responsive (desktop side panel, phone bottom sheet) so one codebase covers both. It can be wrapped as an Android app with Capacitor once the web version is solid.
 
-## Status: Milestone 1 — single-station loop ✅
+## Status: Milestone 1 ✅ + Milestone 2 — multi-region dispatch centers ✅
 
 You can do the whole loop:
 
@@ -14,6 +14,8 @@ You can do the whole loop:
 4. **Units drive real roads** (OSRM) through CAD statuses: `DP` turnout → `ER` en route → `OS` on scene.
 5. **Work progresses** only while the on-scene units meet the requirement: unit roles, total tank water, and personnel.
 6. **Mark complete.** Units go `AV` (returning) and drive home, where they become available again. Units that are driving home can be reassigned on the way.
+
+Place a second station anywhere — Salem and an "Alaska" region at the same time, for instance — and each **dispatch center** keeps its own independent call pool and dispatch-eligible unit pool; see Milestone 2 below.
 
 The save lives in `localStorage` and persists across reloads.
 
@@ -34,8 +36,8 @@ Requires Node 20.19+.
 ```
 src/
   sim/                 Pure TypeScript simulation. No React, no network, no clock.
-    types.ts           Data model (stations, units, trips, missions, CAD log)
-    engine.ts          State → state functions: addStation, dispatchUnit, tick, closeMission…
+    types.ts           Data model (dispatch centers, stations, units, trips, missions, CAD log)
+    engine.ts          State → state functions: addDispatchCenter, addStation, dispatchUnit, tick, closeMission…
     requirements.ts    Unit ↔ requirement matching (bipartite), recommendations
     geo.ts             Haversine, path interpolation, random points in radius
     data/apparatus.ts  Apparatus catalog with real specs
@@ -64,15 +66,33 @@ The engine is deliberately framework-free and deterministic: routes and RNG are 
 - **Turnout time** depends on staffing: career 80 s (the NFPA 1710 benchmark), combination 150 s, volunteer 300 s, police 30 s.
 - **Travel time** is the OSRM car drive time multiplied by a per-vehicle factor. A patrol car is about 0.8× (faster than traffic); a loaded 4,000 gal tanker is about 1.3×. Return trips are non-emergency and run slower.
 
+## Multi-region dispatch centers (Milestone 2)
+
+A **dispatch center** is a named group of stations that share one call pool and one dispatch-eligible unit pool. Placing a station offers a choice:
+
+- **Join an existing center** — the new station's units become available for every other station's calls in that center, and vice versa. This is the explicit "opt in to mutual aid" action; the dialog defaults to this when the new station is within ~150 km of an existing one.
+- **Start a new dispatch center** — an independent region with its own calls and units, invisible to every other center. The dialog defaults to this for a far-away placement (e.g. adding an "Alaska" region alongside Salem, MO).
+
+Under the hood (`src/sim/engine.ts`):
+
+- `GameState.dispatchCenters` holds the centers; every `Station` has a `centerId`.
+- `eligibleMissionTypes()` — which call types a station's area can generate — now matches against `unitsInCenter()`, the pooled fleet of every station in that *center*, not the whole game's fleet. A lone two-officer PD in one center can't suddenly field a call that needs a ladder truck three states away.
+- The dispatch panel's "available units" list is scoped the same way: a mission only offers units from stations in its own center as candidates.
+- Removing the last station in a center drops the now-empty center.
+- Old saves (pre-M2) migrate automatically into one legacy center on load, so nothing breaks.
+
+Within one center, call generation is still per-station (each station's own first-due radius decides where its calls land), so this doesn't change single-station behavior — it only stops two *unrelated* regions from leaking calls or units into each other.
+
 ## Reference data — what's real and what's a placeholder
 
-The Dent County FPD preset uses the district's unit designations: **Engine 8010, 8020, 8030** and **Ladder 8012**. These parts are **placeholders to verify**:
+**Dent County FPD** (`dent-county-fpd` preset) is real, sourced data: station at 2 South Main Street, Salem, MO 65560 (United Way 211 directory; Fire Chief Dennis Floyd), and the full apparatus roster — Engine 8010/8020/8030, Ladder 8012, Pumper Tankers 8013/8023, Rescue 8016, Brush 8018/8028/8038, Truck 8026 — sourced from the district's own Facebook post and a community fire-apparatus roster. Two things are flagged **provisional** in `src/sim/data/apparatus.ts` rather than presented as confirmed:
 
-- which spec each rig maps to (e.g. Engine 8010 = Type 1, Ladder 8012 = 75 ft quint);
-- the tanker and brush unit numbers (currently `Tanker 1/2`, `Brush 1/2`);
-- the Salem PD roster (the preset is a generic small-town PD).
+- **Engine 8030** (1996 Freightliner) may already be retired or transferred under the district's bond-funded "Proposition Fire" apparatus-replacement program; its pump GPM and crew size are estimates from comparable-era rigs, not this unit's own spec sheet.
+- Two **2025 Ford F-350 brush trucks** are on order, not yet in service — modeled as `dcfpd-brush-pending-350` but left out of the default fleet until delivered.
 
-To drop in the real data, edit `src/sim/data/presets.ts`, or rename units in-game (click a callsign on the station screen). The station address isn't hardcoded: you place it yourself on the map.
+**Salem Police Department** (`salem-pd` preset) is also real, sourced data: station at 500 North Jackson St, Salem, MO 65560, Chief Joe Chase, 12 sworn officers (Missouri UCR/NIBRS, ORI MO0330100), serving a population of 4,736. The in-game fleet starts at the one patrol car the department actually runs; growing it to 2–6 patrol units is realistic for a department this size, anything bigger (SWAT, K9, federal-scale units) is not.
+
+The `rural-fire-basic`, `career-fire`, and `small-town-pd` presets remain generic, not tied to a real department. To edit any of this, change `src/sim/data/presets.ts` / `data/apparatus.ts`, or rename units in-game (click a callsign on the station screen). The station address isn't hardcoded: you place it yourself on the map.
 
 ## Map services
 
@@ -86,7 +106,7 @@ The public endpoints are fine for development but **not for production traffic**
 
 ## Roadmap
 
-- **M2 — Multi-region.** Several stations at once, anywhere in the world (Salem + Alaska). Add *dispatch centers*: stations grouped by region, each with its own call pool and unit pool, so distant regions don't interfere. Mutual aid between neighbouring centers is an explicit choice. The data model already stores everything keyed by id, so the work here is mainly region scoping in call generation and candidate filtering.
+- **M2 — Multi-region ✅.** Several stations at once, anywhere in the world (Salem + Alaska). *Dispatch centers* group stations by region, each with its own call pool and unit pool, so distant regions don't interfere; mutual aid between neighbouring centers is an explicit choice made when placing a station. See "Multi-region dispatch centers" above.
 - **M3 — Auto-dispatch AI.** Analyze each call (required roles, water, personnel, distance, availability) and *actually assign* units, with a manual override. `recommendUnits()` already finds the closest set that covers a call. Next steps: road-ETA ranking, keeping coverage (don't strip a district bare), and move-ups.
 - **M4 — Depth.** Calls that escalate when left unattended (a grass fire becomes a woodland fire), a credit economy for buying stations and apparatus, patrol units that roam beats instead of waiting in quarters, and a tanker shuttle / water-supply model.
 - **M5 — Accounts & Android.** Server-side persistence for one save across devices, then a Capacitor wrapper. `vite.config.ts` already uses a relative `base`, so the bundle runs from `capacitor://`.

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { FLEET_PRESETS_BY_ID } from './sim/data/presets';
 import {
+  addDispatchCenter,
   addMission,
   addStation,
   addUnit,
@@ -125,7 +126,14 @@ interface Store {
   startPlacing(): void;
   cancelPlacing(): void;
   draftStationAt(position: LatLng, address?: string): void;
-  confirmStation(input: Omit<NewStation, 'position'> & { presetId: string }): void;
+  /**
+   * `centerId: null` starts a brand-new dispatch center named `newCenterName`
+   * (falling back to "<station name> Dispatch"); an existing id joins that
+   * center's shared call/unit pool instead — the explicit mutual-aid choice.
+   */
+  confirmStation(
+    input: Omit<NewStation, 'position' | 'centerId'> & { presetId: string; centerId: string | null; newCenterName?: string },
+  ): void;
   editStation(id: string, patch: Partial<Pick<Station, 'name' | 'address' | 'staffing' | 'responseRadiusKm'>>): void;
   deleteStation(id: string): void;
 
@@ -243,10 +251,21 @@ export const useStore = create<Store>()(
             if (d && d.position === position) patchUi({ draftStation: { ...d, address: addr, resolving: false } });
           });
         },
-        confirmStation({ presetId, ...input }) {
+        confirmStation({ presetId, centerId, newCenterName, ...input }) {
           const draft = get().ui.draftStation;
           if (!draft) return;
-          let { state, stationId } = addStation(get().game, { ...input, position: draft.position }, Math.random);
+          let game = get().game;
+          let resolvedCenterId = centerId;
+          if (!resolvedCenterId) {
+            const created = addDispatchCenter(game, newCenterName?.trim() || `${input.name} Dispatch`);
+            game = created.state;
+            resolvedCenterId = created.centerId;
+          }
+          let { state, stationId } = addStation(
+            game,
+            { ...input, position: draft.position, centerId: resolvedCenterId },
+            Math.random,
+          );
           for (const u of FLEET_PRESETS_BY_ID[presetId]?.units ?? []) state = addUnit(state, stationId, u.specId, u.callsign);
           set({ game: state });
           patchUi({ draftStation: null, selectedStationId: stationId, tab: 'stations', sheetExpanded: true });
@@ -309,11 +328,21 @@ export const useStore = create<Store>()(
     },
     {
       name: 'reds-save',
-      version: 1,
+      version: 2,
       storage: createJSONStorage(() => throttledLocalStorage),
       partialize: (s) => ({ game: s.game, speed: s.speed, settings: s.settings }),
-      // Pre-1.0 saves: nothing to migrate yet; bump `version` and transform here when the schema changes.
-      migrate: (persisted) => persisted as Pick<Store, 'game' | 'speed' | 'settings'>,
+      // v1 → v2 (Milestone 2): added dispatch centers. Put every pre-existing
+      // station into one legacy center so old saves keep working unchanged.
+      migrate: (persisted, version) => {
+        const p = persisted as { game: GameState; speed: Speed; settings: Settings };
+        if (version < 2 && p.game && !p.game.dispatchCenters) {
+          const centerId = 'dc-legacy';
+          p.game.dispatchCenters = { [centerId]: { id: centerId, name: 'Dispatch Center 1' } };
+          for (const station of Object.values(p.game.stations ?? {})) (station as Station).centerId = centerId;
+          p.game.version = 2;
+        }
+        return p;
+      },
     },
   ),
 );

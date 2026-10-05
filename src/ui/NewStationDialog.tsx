@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { getSpec } from '../sim/data/apparatus';
 import { FLEET_PRESETS, FLEET_PRESETS_BY_ID } from '../sim/data/presets';
+import { nearestDispatchCenter } from '../sim/engine';
 import type { Discipline, StaffingModel } from '../sim/types';
 import { useStore } from '../store';
 import { formatLatLng } from '../services/mapServices';
@@ -16,7 +17,9 @@ function Form() {
   const draft = useStore((s) => s.ui.draftStation)!;
   const confirmStation = useStore((s) => s.confirmStation);
   const cancelPlacing = useStore((s) => s.cancelPlacing);
-  const hasStations = useStore((s) => Object.keys(s.game.stations).length > 0);
+  const game = useStore((s) => s.game);
+  const dispatchCenters = game.dispatchCenters;
+  const hasStations = Object.keys(game.stations).length > 0;
 
   const [presetId, setPresetId] = useState(hasStations ? 'rural-fire-basic' : 'dent-county-fpd');
   const preset = FLEET_PRESETS_BY_ID[presetId]!;
@@ -25,6 +28,13 @@ function Form() {
   const [staffing, setStaffing] = useState<StaffingModel>(preset.staffing);
   const [radius, setRadius] = useState(preset.responseRadiusKm);
   const [address, setAddress] = useState<string | null>(null); // null = use looked-up address
+
+  // A nearby existing center (within mutual-aid range) is suggested to
+  // join by default; a distant placement (e.g. a second region far away)
+  // defaults to starting its own, independent dispatch center.
+  const suggestion = nearestDispatchCenter(game, draft.position);
+  const [centerChoice, setCenterChoice] = useState<string>(suggestion ? suggestion.centerId : '__new__');
+  const [newCenterName, setNewCenterName] = useState('');
 
   const choosePreset = (id: string) => {
     const p = FLEET_PRESETS_BY_ID[id]!;
@@ -50,6 +60,8 @@ function Form() {
             staffing,
             responseRadiusKm: radius,
             address: draft.resolving && address === null ? formatLatLng(draft.position) : shownAddress,
+            centerId: centerChoice === '__new__' ? null : centerChoice,
+            newCenterName,
           });
         }}
       >
@@ -111,6 +123,38 @@ function Form() {
           <span>First-due radius: {radius} km</span>
           <input type="range" min={2} max={30} value={radius} onChange={(e) => setRadius(Number(e.target.value))} />
         </label>
+
+        <label className="field">
+          <span>Dispatch center</span>
+          <select value={centerChoice} onChange={(e) => setCenterChoice(e.target.value)}>
+            {Object.keys(dispatchCenters).length > 0 && (
+              <optgroup label="Join existing — shares calls & units">
+                {Object.values(dispatchCenters).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                    {suggestion?.centerId === c.id ? ` (${suggestion.distanceKm.toFixed(0)} km away)` : ''}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            <option value="__new__">+ New dispatch center — independent region</option>
+          </select>
+          <span className="muted small">
+            {centerChoice === '__new__'
+              ? 'Calls and units here stay separate from every other dispatch center — use this for a far-away region (e.g. Alaska).'
+              : 'Mutual aid: this station shares its call pool and unit pool with every other station in that center.'}
+          </span>
+        </label>
+        {centerChoice === '__new__' && (
+          <label className="field">
+            <span>New center name</span>
+            <input
+              value={newCenterName}
+              onChange={(e) => setNewCenterName(e.target.value)}
+              placeholder={`${name.trim() || preset.stationName} Dispatch`}
+            />
+          </label>
+        )}
 
         <div className="row end gap">
           <button type="button" className="btn btn-ghost" onClick={cancelPlacing}>

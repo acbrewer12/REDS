@@ -115,10 +115,16 @@ interface Candidate {
   distanceM: number;
 }
 
-/** Available units, closest (by estimated ETA) first, then best-suited. */
+/**
+ * Available units, closest (by estimated ETA) first, then best-suited.
+ * Scoped to the mission's dispatch center: units housed at a station in a
+ * different, unrelated center (e.g. a distant "Alaska" region) never show
+ * up as candidates here.
+ */
 function availableCandidates(game: GameState, mission: Mission): Candidate[] {
+  const centerId = game.stations[mission.stationId]?.centerId;
   const candidates = Object.values(game.units)
-    .filter(isAvailable)
+    .filter((unit) => isAvailable(unit) && (!centerId || game.stations[unit.stationId]?.centerId === centerId))
     .map((unit) => {
       const from = unitPosition(unit, game.clock);
       const route = estimateRoute(from, mission.position);

@@ -20,6 +20,9 @@ import type {
   Unit,
 } from './types';
 
+/** A new dispatch center farther than this from every existing one won't be auto-suggested for mutual aid. */
+export const MUTUAL_AID_SUGGEST_KM = 150;
+
 /** Mean sim-seconds between calls in one station's area. */
 export const CALL_INTERVAL_SEC = 300;
 /** A station's area stops generating calls while this many are open. */
@@ -42,9 +45,10 @@ export interface Route {
 
 export function createGame(epoch: number): GameState {
   return {
-    version: 1,
+    version: 2,
     epoch,
     clock: 0,
+    dispatchCenters: {},
     stations: {},
     units: {},
     missions: {},
@@ -61,6 +65,7 @@ export function createGame(epoch: number): GameState {
 function draft(state: GameState): GameState {
   return {
     ...state,
+    dispatchCenters: { ...state.dispatchCenters },
     stations: { ...state.stations },
     units: { ...state.units },
     missions: { ...state.missions },
@@ -137,6 +142,54 @@ export function isOpen(m: Mission): boolean {
   return m.status !== 'completed' && m.status !== 'cancelled';
 }
 
+// ── dispatch centers ───────────────────────────────────────────────────
+
+/** Create a new, empty dispatch center (a region's independent call/unit pool). */
+export function addDispatchCenter(state: GameState, name: string): { state: GameState; centerId: string } {
+  const s = draft(state);
+  const id = newId(s, 'dc');
+  s.dispatchCenters[id] = { id, name: name.trim() || 'Dispatch Center' };
+  return { state: s, centerId: id };
+}
+
+export function renameDispatchCenter(state: GameState, centerId: string, name: string): GameState {
+  const center = state.dispatchCenters[centerId];
+  if (!center || !name.trim()) return state;
+  const s = draft(state);
+  s.dispatchCenters[centerId] = { ...center, name: name.trim() };
+  return s;
+}
+
+/** Stations that belong to one dispatch center. */
+export function stationsInCenter(state: GameState, centerId: string): Station[] {
+  return Object.values(state.stations).filter((st) => st.centerId === centerId);
+}
+
+/** Units housed at any station in one dispatch center — the center's shared dispatch pool. */
+export function unitsInCenter(state: GameState, centerId: string): Unit[] {
+  const ids = new Set(stationsInCenter(state, centerId).map((st) => st.id));
+  return Object.values(state.units).filter((u) => ids.has(u.stationId));
+}
+
+/**
+ * The nearest existing dispatch center to `position`, if one is within
+ * {@link MUTUAL_AID_SUGGEST_KM} — used to default the "join vs. start a new
+ * center" choice when placing a station, without forcing it either way.
+ */
+export function nearestDispatchCenter(
+  state: GameState,
+  position: LatLng,
+): { centerId: string; distanceKm: number } | null {
+  let best: { centerId: string; distanceKm: number } | null = null;
+  for (const station of Object.values(state.stations)) {
+    const distanceKm = haversineMeters(position, station.position) / 1000;
+    if (distanceKm <= MUTUAL_AID_SUGGEST_KM && (!best || distanceKm < best.distanceKm)) {
+      best = { centerId: station.centerId, distanceKm };
+    }
+  }
+  return best;
+}
+
 // ── stations & fleet ───────────────────────────────────────────────────
 
 export interface NewStation {
@@ -146,6 +199,8 @@ export interface NewStation {
   position: LatLng;
   staffing: StaffingModel;
   responseRadiusKm: number;
+  /** Dispatch center this station joins — create one first with {@link addDispatchCenter} for a new region. */
+  centerId: string;
 }
 
 export function addStation(
@@ -153,6 +208,7 @@ export function addStation(
   input: NewStation,
   rng: () => number,
 ): { state: GameState; stationId: string } {
+  if (!state.dispatchCenters[input.centerId]) throw new Error(`Unknown dispatch center: ${input.centerId}`);
   const s = draft(state);
   const id = newId(s, 'st');
   // First call comes quickly so a new player sees the loop working.
@@ -183,6 +239,8 @@ export function removeStation(state: GameState, stationId: string): GameState {
   const s = draft(state);
   delete s.stations[stationId];
   for (const u of units) delete s.units[u.id];
+  // Drop a center once it has no stations left, so the join/create picker doesn't fill with ghosts.
+  if (!Object.values(s.stations).some((st) => st.centerId === station.centerId)) delete s.dispatchCenters[station.centerId];
   log(s, 'system', `${station.name} removed.`);
   return s;
 }
@@ -247,9 +305,13 @@ function disciplinesFor(station: Station): Discipline[] {
   return ['fire', 'ems']; // fire-based EMS: medical calls appear once an ambulance exists
 }
 
-/** Call types this station's area can generate: right discipline, and the whole fleet could handle it. */
+/**
+ * Call types this station's area can generate: right discipline, and
+ * coverable by its dispatch center's pooled fleet (every station sharing
+ * that center) — not by stations in other, unrelated centers.
+ */
 export function eligibleMissionTypes(state: GameState, station: Station): MissionType[] {
-  const fleet = Object.values(state.units);
+  const fleet = unitsInCenter(state, station.centerId);
   const disciplines = disciplinesFor(station);
   return MISSION_TYPES.filter((t) => disciplines.includes(t.discipline) && matchRequirements(t, fleet).met);
 }
