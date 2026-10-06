@@ -9,6 +9,10 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  # configure-pages' `enablement: true` calls the "create a Pages site" API
+  # to set up Pages for the first time, which needs administration:write —
+  # pages:write alone only covers deploying once a Pages site already exists.
+  administration: write
 
 concurrency:
   group: pages
