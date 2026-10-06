@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { getSpec } from './data/apparatus';
+import { getMissionType } from './data/missions';
 import { FLEET_PRESETS, FLEET_PRESETS_BY_ID } from './data/presets';
 import {
   addDispatchCenter,
@@ -251,6 +252,37 @@ describe('engine — single-station loop', () => {
     // Same leg distance, 5x the time → the open stretch reads ~5x faster,
     // not the one blended number a trip-average would give throughout.
     expect(fastLegMph / slowLegMph).toBeCloseTo(5, 1);
+  });
+
+  it('drives the posted limit for a non-emergency call type, not the code-3 boost', () => {
+    let { state, stationId } = setup('salem-pd');
+    const route = estimateRoute(SALEM, SCENE);
+
+    // 'alarm-burglary' is marked emergencyResponse: false — an unverified
+    // alarm, standard procedure is a routine response.
+    const hot = addMission(state, { stationId, typeId: 'suspicious-vehicle', position: SCENE, narrative: '', workRequiredSec: 300 }, 'x');
+    expect(getMissionType('suspicious-vehicle').emergencyResponse).toBe(false);
+    // 'disturbance' has no emergencyResponse set — defaults to true (hot).
+    expect(getMissionType('disturbance').emergencyResponse).toBeUndefined();
+
+    const unit = unitBy(state, 'Unit 1');
+    const spec = getSpec(unit.specId);
+    expect(spec.roadTimeFactor).toBeLessThan(1); // this unit *can* run faster than traffic...
+
+    const routineState = dispatchUnit(hot.state, unit.id, hot.missionId, route);
+    const routineTrip = routineState.units[unit.id]!.trip!;
+    const routineTravelSec = (routineTrip.arriveAt - routineTrip.departAt) / 1000;
+    // ...but not here: never faster than the route's own baseline pace.
+    expect(routineTravelSec).toBeGreaterThanOrEqual(route.carDurationSec - 1e-6);
+
+    // Dispatched to a call with no emergencyResponse override (hot by
+    // default), the same unit over the same route gets the code-3 boost —
+    // strictly faster (shorter travel time) than the routine response above.
+    const added2 = addMission(state, { stationId, typeId: 'disturbance', position: SCENE, narrative: '', workRequiredSec: 300 }, 'x');
+    const hotState = dispatchUnit(added2.state, unit.id, added2.missionId, route);
+    const hotTrip = hotState.units[unit.id]!.trip!;
+    const hotTravelSec = (hotTrip.arriveAt - hotTrip.departAt) / 1000;
+    expect(hotTravelSec).toBeLessThan(routineTravelSec);
   });
 
   it('pauses work when a required unit leaves the scene', () => {

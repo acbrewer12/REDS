@@ -190,6 +190,10 @@ function MissionDetail({ missionId }: { missionId: string }) {
       <p className="muted small">
         Received {formatClock(game.epoch + mission.createdAt)} ({formatDuration((game.clock - mission.createdAt) / 1000)} ago)
         {firstDue && <> · {firstDue.name} first-due</>}
+        {' · '}
+        <span className={type.emergencyResponse === false ? 'response-mode routine' : 'response-mode hot'}>
+          {type.emergencyResponse === false ? 'Routine response' : 'Code 3 — lights & siren'}
+        </span>
       </p>
 
       <section>

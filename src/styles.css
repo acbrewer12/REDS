@@ -599,6 +599,15 @@ input[type='checkbox'] {
   border-radius: 4px;
   font-style: italic;
 }
+.response-mode {
+  font-weight: 600;
+}
+.response-mode.hot {
+  color: #fdba74;
+}
+.response-mode.routine {
+  color: #5eead4;
+}
 .req-table {
   width: 100%;
   border-collapse: collapse;

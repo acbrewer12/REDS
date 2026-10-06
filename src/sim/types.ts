@@ -192,6 +192,18 @@ export interface MissionType {
   weight: number;
   /** Caller / CAD narrative lines; one is picked per call. */
   narratives: string[];
+  /**
+   * Whether units responding to this call run lights-and-siren (faster than
+   * traffic — see Apparatus.roadTimeFactor) or drive at the posted limit
+   * like a non-emergency return trip. Defaults to true (emergency/"hot")
+   * when unset — most call types warrant it. Set false for calls real
+   * departments typically run cold: an unverified alarm (the overwhelming
+   * majority are false, and routine response to them is standard
+   * procedure), a suspicious-vehicle check (lights would just tip the
+   * subject off), a cold report, or anything with no injuries and nothing
+   * actively happening.
+   */
+  emergencyResponse?: boolean;
 }
 
 export type LogKind = 'call' | 'dispatch' | 'status' | 'clear' | 'system';

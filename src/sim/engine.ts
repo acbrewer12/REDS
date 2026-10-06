@@ -8,6 +8,7 @@ import { POLICE_TURNOUT_SECONDS, TURNOUT_SECONDS } from './data/presets';
 import { buildCumTime, cumulativeDistances, haversineMeters, randomPointInRadius, tripCurrentSegment, tripPosition } from './geo';
 import { matchRequirements, rankCandidates } from './requirements';
 import type {
+  ApparatusSpec,
   Discipline,
   GameState,
   LatLng,
@@ -145,12 +146,24 @@ export function pickPatrolWaypoint(station: Station, rng: () => number): LatLng 
   return randomPointInRadius(station.position, station.responseRadiusKm * 1000, rng, PATROL_LEG_MIN_M);
 }
 
-/** Seconds from dispatch until this unit would arrive via `route`. */
-export function etaSeconds(state: GameState, unit: Unit, route: Route): number {
+/**
+ * Travel-time multiplier for one leg of driving: a lights-and-siren
+ * ("hot"/code-3) response gets the apparatus's own factor — which can be
+ * <1, faster than traffic — while anything non-emergency (a call type
+ * marked `emergencyResponse: false`, a return trip, ambient patrol) is
+ * clamped to never beat the posted limit.
+ */
+function responseTimeFactor(spec: ApparatusSpec, emergency: boolean): number {
+  return emergency ? spec.roadTimeFactor : Math.max(1, spec.roadTimeFactor);
+}
+
+/** Seconds from dispatch until this unit would arrive via `route`, responding to `mission`. */
+export function etaSeconds(state: GameState, unit: Unit, route: Route, mission: Mission): number {
   const station = state.stations[unit.stationId]!;
   const spec = getSpec(unit.specId);
   const turnout = unit.status === 'in_quarters' ? turnoutSeconds(station.staffing, spec.discipline) : 0;
-  return turnout + route.carDurationSec * spec.roadTimeFactor;
+  const emergency = missionType(mission).emergencyResponse !== false;
+  return turnout + route.carDurationSec * responseTimeFactor(spec, emergency);
 }
 
 function makeTrip(route: Route, from: LatLng, to: LatLng, departAt: number, travelSec: number): Trip {
@@ -222,7 +235,7 @@ export function candidatesForMission(state: GameState, mission: Mission): Dispat
   const candidates = pool.map((unit) => {
     const from = unitPosition(unit, state.clock);
     const route = estimateRoute(from, mission.position);
-    return { unit, etaSec: etaSeconds(state, unit, route), distanceM: haversineMeters(from, mission.position) };
+    return { unit, etaSec: etaSeconds(state, unit, route, mission), distanceM: haversineMeters(from, mission.position) };
   });
   const ranked = rankCandidates(missionType(mission), candidates);
   // Array.prototype.sort is stable, so this only reorders across the sole/not-sole
@@ -496,12 +509,13 @@ export function dispatchUnit(state: GameState, unitId: string, missionId: string
   const s = draft(state);
   const from = unitPosition(unit, s.clock);
   const turnout = unit.status === 'in_quarters' ? turnoutSeconds(station.staffing, spec.discipline) : 0;
+  const emergency = missionType(mission).emergencyResponse !== false;
   const trip = makeTrip(
     route,
     from,
     mission.position,
     s.clock + turnout * 1000,
-    route.carDurationSec * spec.roadTimeFactor,
+    route.carDurationSec * responseTimeFactor(spec, emergency),
   );
 
   s.units[unitId] = {
@@ -563,7 +577,7 @@ function sendHome(s: GameState, unit: Unit, route: Route | null) {
   const from = unitPosition(unit, s.clock);
   const r = route ?? estimateRoute(from, station.position);
   const spec = getSpec(unit.specId);
-  const travelSec = r.carDurationSec * Math.max(1, spec.roadTimeFactor) * RETURN_TIME_FACTOR;
+  const travelSec = r.carDurationSec * responseTimeFactor(spec, false) * RETURN_TIME_FACTOR;
   s.units[unit.id] = {
     ...unit,
     status: 'returning',
@@ -587,7 +601,7 @@ export function beginPatrol(state: GameState, unitId: string, route: Route, to: 
   const spec = getSpec(unit.specId);
   const s = draft(state);
   const from = unitPosition(unit, s.clock);
-  const travelSec = route.carDurationSec * Math.max(1, spec.roadTimeFactor);
+  const travelSec = route.carDurationSec * responseTimeFactor(spec, false);
   s.units[unitId] = {
     ...unit,
     status: 'patrolling',
