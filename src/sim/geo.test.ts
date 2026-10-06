@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { cumulativeDistances, haversineMeters, pointAlongPath, randomPointInRadius, tripPosition } from './geo';
+import {
+  buildCumTime,
+  cumulativeDistances,
+  haversineMeters,
+  pointAlongPath,
+  randomPointInRadius,
+  tripCurrentSegment,
+  tripPosition,
+} from './geo';
 import { mulberry32 } from './rng';
 
 const SALEM = { lat: 37.6456, lng: -91.5357 };
@@ -24,13 +32,42 @@ describe('geo', () => {
 
   it('moves at constant speed over a trip', () => {
     const path = [SALEM, ROLLA];
-    const trip = { path, cumDist: cumulativeDistances(path), departAt: 1000, arriveAt: 3000, source: 'estimate' as const };
+    const cumDist = cumulativeDistances(path);
+    const trip = {
+      path,
+      cumDist,
+      cumTime: buildCumTime(cumDist, undefined, 2000),
+      departAt: 1000,
+      arriveAt: 3000,
+      source: 'estimate' as const,
+    };
     expect(tripPosition(trip, 0)).toEqual(SALEM);
     expect(tripPosition(trip, 5000)).toEqual(ROLLA);
     // Linear lat/lng interpolation: within 0.1% of the true midpoint on a 40 km segment.
     const half = tripPosition(trip, 2000);
     const diff = Math.abs(haversineMeters(SALEM, half) - haversineMeters(half, ROLLA));
     expect(diff / haversineMeters(SALEM, ROLLA)).toBeLessThan(0.001);
+  });
+
+  it('varies speed segment to segment instead of one flat trip-average', () => {
+    // Two equal-length (~5.56 km) segments, but segment 1 is timed to take
+    // 4x as long as segment 2 — a slow residential stretch into town, then
+    // a fast one on the open road, the way real per-segment road data would.
+    const mid = { lat: SALEM.lat, lng: SALEM.lng + (ROLLA.lng - SALEM.lng) / 2 };
+    const path = [SALEM, mid, ROLLA];
+    const cumDist = cumulativeDistances(path);
+    const totalMs = 10_000;
+    const cumTime = buildCumTime(cumDist, [800, 200], totalMs); // seconds, arbitrary unit — just a ratio
+    const trip = { path, cumDist, cumTime, departAt: 0, arriveAt: totalMs, source: 'road' as const };
+
+    const [, slowDurationSec] = tripCurrentSegment(trip, 2000); // still in segment 1 (0–8000ms)
+    const [, fastDurationSec] = tripCurrentSegment(trip, 9000); // into segment 2 (8000–10000ms)
+    // Same distance, 4x the time on segment 1 → segment 2 reads ~4x faster.
+    expect(fastDurationSec).toBeLessThan(slowDurationSec);
+    expect(slowDurationSec / fastDurationSec).toBeCloseTo(4, 1);
+
+    // Position still lands exactly on the segment boundary at its cumTime.
+    expect(tripPosition(trip, 8000)).toEqual(mid);
   });
 
   it('generates random points inside the radius ring', () => {

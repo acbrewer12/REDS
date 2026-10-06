@@ -78,6 +78,14 @@ export interface Trip {
   path: LatLng[];
   /** Cumulative distance in meters for each path vertex (cumDist[0] === 0). */
   cumDist: number[];
+  /**
+   * Cumulative time in ms from `departAt` for each path vertex
+   * (cumTime[0] === 0, cumTime.at(-1) === arriveAt - departAt). Segment
+   * speed can vary — a real road route times each segment from its own
+   * data, so a unit covers a highway stretch faster than a residential
+   * one, instead of one flat trip-average pace.
+   */
+  cumTime: number[];
   /** Sim time (ms) the wheels start rolling. */
   departAt: number;
   /** Sim time (ms) the unit arrives. */

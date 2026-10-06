@@ -115,7 +115,12 @@ export async function reverseGeocode(p: LatLng): Promise<string> {
 
 interface OsrmRouteResponse {
   code: string;
-  routes?: { distance: number; duration: number; geometry: { coordinates: [number, number][] } }[];
+  routes?: {
+    distance: number;
+    duration: number;
+    geometry: { coordinates: [number, number][] };
+    legs?: { annotation?: { duration?: number[] } }[];
+  }[];
 }
 
 interface OsrmNearestResponse {
@@ -136,11 +141,21 @@ export async function getRoute(from: LatLng, to: LatLng, useRoads: boolean): Pro
   const cached = routeCache.get(k);
   if (cached) return cached;
   const reverse = routeCache.get(`${key(to)};${key(from)}`);
-  if (reverse) return { ...reverse, path: [...reverse.path].reverse() };
+  if (reverse) {
+    return {
+      ...reverse,
+      path: [...reverse.path].reverse(),
+      segDurationsSec: reverse.segDurationsSec ? [...reverse.segDurationsSec].reverse() : undefined,
+    };
+  }
 
   try {
     const data = await osrmQueue(() =>
-      fetchJson<OsrmRouteResponse>(`${OSRM_URL}/route/v1/driving/${k}?overview=full&geometries=geojson`),
+      // annotations=true gives per-segment duration alongside the geometry,
+      // one entry per consecutive coordinate pair — lets a trip's displayed
+      // speed vary with the actual road instead of being one flat average
+      // over the whole route (see Route.segDurationsSec / unitSpeedMph).
+      fetchJson<OsrmRouteResponse>(`${OSRM_URL}/route/v1/driving/${k}?overview=full&geometries=geojson&annotations=true`),
     );
     const r = data.routes?.[0];
     if (data.code !== 'Ok' || !r) throw new Error(data.code);
@@ -149,6 +164,7 @@ export async function getRoute(from: LatLng, to: LatLng, useRoads: boolean): Pro
       distanceM: r.distance,
       carDurationSec: r.duration,
       source: 'road',
+      segDurationsSec: r.legs?.[0]?.annotation?.duration,
     };
     if (routeCache.size > 500) routeCache.clear();
     routeCache.set(k, route);

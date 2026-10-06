@@ -209,6 +209,50 @@ describe('engine — single-station loop', () => {
     expect(u.trip!.departAt).toBe(state.clock);
   });
 
+  it("reads a unit's live speed off the actual road segment, not a flat trip-average", () => {
+    // A road route with real per-segment timing: a slow residential leg out
+    // of the station, then a fast open stretch — the kind of data OSRM's
+    // annotations=true gives, which a flat trip-average washes out into one
+    // number (the "25 in a 35 zone" complaint this fixes).
+    let { state, stationId } = setup('salem-pd');
+    const unit = unitBy(state, 'Unit 1');
+    // Due north along the same meridian, so the two legs are exactly
+    // equal-length (isolates the timing ratio from any distance skew).
+    const mid = { lat: SALEM.lat + 0.05, lng: SALEM.lng };
+    const scene = { lat: SALEM.lat + 0.1, lng: SALEM.lng };
+    const legDistM = haversineMeters(SALEM, mid);
+    const route = {
+      path: [SALEM, mid, scene],
+      distanceM: legDistM * 2,
+      carDurationSec: 500, // unused once segDurationsSec is supplied
+      source: 'road' as const,
+      segDurationsSec: [300, 60], // residential leg takes 5x as long as the open one
+    };
+
+    const added = addMission(
+      state,
+      { stationId, typeId: 'suspicious-vehicle', position: scene, narrative: '', workRequiredSec: 300 },
+      'x',
+    );
+    state = dispatchUnit(added.state, unit.id, added.missionId, route);
+    state = tick(state, 31_000); // past the 30s police turnout
+    expect(state.units[unit.id]!.status).toBe('en_route');
+
+    const trip = state.units[unit.id]!.trip!;
+    // trip.path is [from, ...route.path, to]; here from/to equal route's own
+    // endpoints, so it's [SALEM, SALEM, mid, SCENE, SCENE] — the real legs
+    // are cumTime[1..2] (SALEM→mid) and cumTime[2..3] (mid→SCENE), either
+    // side of the (near-zero-width) duplicate-endpoint stub segments.
+    const halfwayThroughLeg1 = state.clock + trip.cumTime[1]! + (trip.cumTime[2]! - trip.cumTime[1]!) / 2;
+    const halfwayThroughLeg2 = state.clock + trip.cumTime[2]! + (trip.cumTime[3]! - trip.cumTime[2]!) / 2;
+    const slowLegMph = unitSpeedMph(state.units[unit.id]!, halfwayThroughLeg1);
+    const fastLegMph = unitSpeedMph(state.units[unit.id]!, halfwayThroughLeg2);
+    expect(slowLegMph).toBeGreaterThan(0);
+    // Same leg distance, 5x the time → the open stretch reads ~5x faster,
+    // not the one blended number a trip-average would give throughout.
+    expect(fastLegMph / slowLegMph).toBeCloseTo(5, 1);
+  });
+
   it('pauses work when a required unit leaves the scene', () => {
     let { state, stationId } = setup();
     const added = addMission(

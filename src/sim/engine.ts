@@ -5,7 +5,7 @@
 import { getSpec } from './data/apparatus';
 import { getMissionType, MISSION_TYPES } from './data/missions';
 import { POLICE_TURNOUT_SECONDS, TURNOUT_SECONDS } from './data/presets';
-import { cumulativeDistances, haversineMeters, randomPointInRadius, tripPosition } from './geo';
+import { buildCumTime, cumulativeDistances, haversineMeters, randomPointInRadius, tripCurrentSegment, tripPosition } from './geo';
 import { matchRequirements, rankCandidates } from './requirements';
 import type {
   Discipline,
@@ -43,6 +43,15 @@ export interface Route {
   distanceM: number;
   carDurationSec: number;
   source: 'road' | 'estimate';
+  /**
+   * Real per-segment duration (seconds) between consecutive `path` points —
+   * from a road router's per-edge timing (OSRM's `annotations=true`), one
+   * entry per segment (length === path.length - 1). Lets a trip's speed
+   * vary with the road (slower on a residential street, faster on a
+   * highway) instead of being one flat trip-average. Absent for a
+   * straight-line estimate, which has no such data.
+   */
+  segDurationsSec?: number[];
 }
 
 export function createGame(epoch: number): GameState {
@@ -107,16 +116,16 @@ export function unitPosition(unit: Unit, t: number): LatLng {
 }
 
 /**
- * A moving unit's current road speed in mph, for display only — the
- * simulation itself only needs average speed (constant across one trip; see
- * `tripPosition`), so this is that same trip-average number, zero while the
- * unit isn't actually rolling (turning out, on scene, in quarters).
+ * A moving unit's current road speed in mph, for display only — reads the
+ * actual road segment it's on right now (see `Trip.cumTime`), not one flat
+ * trip-average, so it climbs on a highway stretch and drops back through a
+ * residential one the way a real speedometer would. Zero while the unit
+ * isn't actually rolling (turning out, on scene, in quarters).
  */
 export function unitSpeedMph(unit: Unit, t: number): number {
   const trip = unit.trip;
   if (!trip || t < trip.departAt || t >= trip.arriveAt) return 0;
-  const distanceM = trip.cumDist.at(-1) ?? 0;
-  const durationSec = (trip.arriveAt - trip.departAt) / 1000;
+  const [distanceM, durationSec] = tripCurrentSegment(trip, t);
   if (durationSec <= 0) return 0;
   return distanceM / durationSec / 0.44704; // m/s → mph
 }
@@ -148,11 +157,21 @@ function makeTrip(route: Route, from: LatLng, to: LatLng, departAt: number, trav
   // Routers snap endpoints to the nearest road; pin the path to the real
   // start/end so the marker leaves the station and stops on the incident.
   const path = [from, ...route.path, to];
+  const cumDist = cumulativeDistances(path);
+  const totalMs = Math.max(1, travelSec) * 1000;
+  // route.segDurationsSec (real road data) lines up with route.path's own
+  // internal segments; the prepended from→road and appended road→to stubs
+  // above don't have their own timing and fall back to a distance share
+  // (see buildCumTime) — negligible next to the real route either way.
+  const weights = route.segDurationsSec
+    ? path.slice(0, -1).map((_, i) => route.segDurationsSec![i - 1])
+    : undefined;
   return {
     path,
-    cumDist: cumulativeDistances(path),
+    cumDist,
+    cumTime: buildCumTime(cumDist, weights, totalMs),
     departAt,
-    arriveAt: departAt + Math.max(1, travelSec) * 1000,
+    arriveAt: departAt + totalMs,
     source: route.source,
   };
 }
