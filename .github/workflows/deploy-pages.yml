@@ -29,6 +29,11 @@ jobs:
       - run: npm ci
       - run: npm run build
       - uses: actions/configure-pages@v5
+        with:
+          # Create the Pages site automatically on first run (via the
+          # workflow's own `pages: write` token) instead of requiring the
+          # repo owner to flip Settings → Pages → Source by hand first.
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
