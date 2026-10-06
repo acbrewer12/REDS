@@ -88,11 +88,23 @@ export function buildCumTime(cumDist: number[], weights: (number | undefined)[] 
   return cumTime;
 }
 
+/**
+ * `trip.cumTime`, or a fallback built on the fly for a trip that doesn't
+ * have one — a save persisted before cumTime existed, loaded after an
+ * update. Falls back to the original constant-speed split (store.ts's
+ * migration patches these up properly on load; this is insurance against
+ * any trip that slips through some other way) rather than crashing the
+ * whole app on a stale save.
+ */
+function effectiveCumTime(trip: Trip): number[] {
+  return trip.cumTime ?? buildCumTime(trip.cumDist, undefined, Math.max(1, trip.arriveAt - trip.departAt));
+}
+
 /** Segment index `i` (so `t` falls between `path[i]` and `path[i+1]`) + the local fraction within it. */
-function tripSegment(trip: Trip, t: number): { i: number; f: number } {
-  const cumTime = trip.cumTime;
+function tripSegment(trip: Trip, t: number): { i: number; f: number; cumTime: number[] } {
+  const cumTime = effectiveCumTime(trip);
   const elapsed = Math.min(cumTime.at(-1) ?? 0, Math.max(0, t - trip.departAt));
-  if (cumTime.length < 2) return { i: 0, f: 0 };
+  if (cumTime.length < 2) return { i: 0, f: 0, cumTime };
   let lo = 0;
   let hi = cumTime.length - 1;
   while (hi - lo > 1) {
@@ -101,7 +113,7 @@ function tripSegment(trip: Trip, t: number): { i: number; f: number } {
     else hi = mid;
   }
   const segLen = cumTime[hi]! - cumTime[lo]!;
-  return { i: lo, f: segLen === 0 ? 0 : (elapsed - cumTime[lo]!) / segLen };
+  return { i: lo, f: segLen === 0 ? 0 : (elapsed - cumTime[lo]!) / segLen, cumTime };
 }
 
 /**
@@ -135,10 +147,10 @@ export function remainingPath(trip: Trip, t: number): LatLng[] {
  * flat trip-average.
  */
 export function tripCurrentSegment(trip: Trip, t: number): [number, number] {
-  const { i } = tripSegment(trip, t);
+  const { i, cumTime } = tripSegment(trip, t);
   const j = Math.min(i + 1, trip.path.length - 1);
   const distM = trip.cumDist[j]! - trip.cumDist[i]!;
-  const timeMs = trip.cumTime[j]! - trip.cumTime[i]!;
+  const timeMs = cumTime[j]! - cumTime[i]!;
   return [distM, timeMs / 1000];
 }
 

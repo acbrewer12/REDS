@@ -28,6 +28,7 @@ import {
   type NewStation,
   type Route,
 } from './sim/engine';
+import { buildCumTime } from './sim/geo';
 import { matchRequirements, recommendUnits } from './sim/requirements';
 import type { GameState, LatLng, Station } from './sim/types';
 import { getRoute, reverseGeocode, snapToRoad } from './services/mapServices';
@@ -427,11 +428,17 @@ export const useStore = create<Store>()(
     },
     {
       name: 'reds-save',
-      version: 2,
+      version: 3,
       storage: createJSONStorage(() => throttledLocalStorage),
       partialize: (s) => ({ game: s.game, speed: s.speed, settings: s.settings }),
       // v1 → v2 (Milestone 2): added dispatch centers. Put every pre-existing
       // station into one legacy center so old saves keep working unchanged.
+      // v2 → v3: Trip gained cumTime (lets speed vary by road segment
+      // instead of being one flat trip-average — see sim/geo.ts). A unit
+      // mid-trip in an old save has a trip with no cumTime at all, which
+      // crashes the whole app on load (every render reads it); rebuild it
+      // with the old constant-speed split so that trip finishes exactly as
+      // it would have before this existed.
       migrate: (persisted, version) => {
         const p = persisted as { game: GameState; speed: Speed; settings: Settings };
         if (version < 2 && p.game && !p.game.dispatchCenters) {
@@ -439,6 +446,14 @@ export const useStore = create<Store>()(
           p.game.dispatchCenters = { [centerId]: { id: centerId, name: 'Dispatch Center 1' } };
           for (const station of Object.values(p.game.stations ?? {})) (station as Station).centerId = centerId;
           p.game.version = 2;
+        }
+        if (version < 3 && p.game) {
+          for (const unit of Object.values(p.game.units ?? {})) {
+            const trip = unit.trip as (typeof unit.trip & { cumTime?: number[] }) | null;
+            if (trip && !trip.cumTime) {
+              trip.cumTime = buildCumTime(trip.cumDist, undefined, Math.max(1, trip.arriveAt - trip.departAt));
+            }
+          }
         }
         return p;
       },
