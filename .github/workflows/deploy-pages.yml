@@ -9,10 +9,6 @@ permissions:
   contents: read
   pages: write
   id-token: write
-  # configure-pages' `enablement: true` calls the "create a Pages site" API
-  # to set up Pages for the first time, which needs administration:write —
-  # pages:write alone only covers deploying once a Pages site already exists.
-  administration: write
 
 concurrency:
   group: pages
@@ -32,12 +28,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # Creating the Pages site itself is a one-time, human-only step —
+      # GITHUB_TOKEN can never do it (`administration: write` isn't even a
+      # grantable scope), by GitHub's own design. Do it once at
+      # Settings → Pages → Build and deployment → Source → GitHub Actions,
+      # then every run after that (including this one) just deploys to it.
       - uses: actions/configure-pages@v5
-        with:
-          # Create the Pages site automatically on first run (via the
-          # workflow's own `pages: write` token) instead of requiring the
-          # repo owner to flip Settings → Pages → Source by hand first.
-          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
