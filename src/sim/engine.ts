@@ -33,6 +33,8 @@ export const ESTIMATE_CIRCUITY = 1.35;
 export const ESTIMATE_CAR_KPH = 64;
 /** Non-emergency return trips run slower than a lights-and-siren response. */
 export const RETURN_TIME_FACTOR = 1.15;
+/** How far out (min/max, meters) a patrol leg wanders from its station. */
+export const PATROL_LEG_MIN_M = 400;
 const LOG_LIMIT = 300;
 
 /** A drivable path between two points, as a passenger car would drive it. */
@@ -119,9 +121,19 @@ export function unitSpeedMph(unit: Unit, t: number): number {
   return distanceM / durationSec / 0.44704; // m/s → mph
 }
 
-/** Units in quarters, or driving home, can take a new assignment. */
+/** Units in quarters, driving home, or out on patrol can take a new assignment. */
 export function isAvailable(unit: Unit): boolean {
-  return unit.status === 'in_quarters' || unit.status === 'returning';
+  return unit.status === 'in_quarters' || unit.status === 'returning' || unit.status === 'patrolling';
+}
+
+/** Whether this unit's apparatus is the kind that roams on ambient patrol when idle. */
+export function canPatrol(unit: Unit): boolean {
+  return getSpec(unit.specId).roles.includes('patrol');
+}
+
+/** A random point inside a station's coverage area for the next patrol leg. */
+export function pickPatrolWaypoint(station: Station, rng: () => number): LatLng {
+  return randomPointInRadius(station.position, station.responseRadiusKm * 1000, rng, PATROL_LEG_MIN_M);
 }
 
 /** Seconds from dispatch until this unit would arrive via `route`. */
@@ -544,6 +556,30 @@ function sendHome(s: GameState, unit: Unit, route: Route | null) {
 }
 
 /**
+ * Send an idle patrol unit out on its next ambient patrol leg, from wherever
+ * it is now to `to` (pick one with {@link pickPatrolWaypoint}). Drives at the
+ * posted limit — no lights-and-siren boost — same clamp as a non-emergency
+ * return trip, but without the extra slowdown, since this is just a normal
+ * drive, not a tired crew idling back to the barn.
+ */
+export function beginPatrol(state: GameState, unitId: string, route: Route, to: LatLng): GameState {
+  const unit = state.units[unitId];
+  if (!unit || (unit.status !== 'in_quarters' && unit.status !== 'patrolling') || unit.trip) return state;
+  const spec = getSpec(unit.specId);
+  const s = draft(state);
+  const from = unitPosition(unit, s.clock);
+  const travelSec = route.carDurationSec * Math.max(1, spec.roadTimeFactor);
+  s.units[unitId] = {
+    ...unit,
+    status: 'patrolling',
+    position: from,
+    trip: makeTrip(route, from, to, s.clock, travelSec),
+    statusSince: s.clock,
+  };
+  return s;
+}
+
+/**
  * Close a call. 'completed' requires the work to be finished (status
  * 'resolved') and pays out; 'cancelled' can happen any time and doesn't.
  * Every assigned unit is sent home; `routes` maps unitId → route home.
@@ -605,6 +641,13 @@ export function tick(state: GameState, dtMs: number): GameState {
         statusSince: u.trip.arriveAt,
       };
       log(s, 'status', `${u.callsign} in quarters`, undefined, u.statusSince);
+    }
+    // Finished a patrol leg: sit at the waypoint, trip cleared, still
+    // 'patrolling' (and so still available) — the caller picks and routes
+    // the next leg (needs rng/network, which this pure tick can't do) and
+    // starts it with beginPatrol.
+    if (u.status === 'patrolling' && u.trip && t >= u.trip.arriveAt) {
+      u = { ...u, position: u.trip.path.at(-1)!, trip: null, statusSince: u.trip.arriveAt };
     }
     if (u !== unit) s.units[u.id] = u;
   }

@@ -7,12 +7,15 @@ import {
   addMission,
   addStation,
   addUnit,
+  beginPatrol,
   candidatesForMission,
+  canPatrol,
   closeMission,
   createGame,
   dispatchUnit,
   isAvailable,
   missionUnits,
+  pickPatrolWaypoint,
   planCall,
   releaseUnit,
   removeStation,
@@ -91,6 +94,14 @@ export interface Settings {
    * still work — this just means a call doesn't have to wait on you.
    */
   autoDispatch: boolean;
+  /**
+   * Idle patrol units (role 'patrol') drive ambient legs around their
+   * station's coverage area at the posted limit — no lights-and-siren
+   * boost — instead of just sitting at the station. They're still pulled
+   * off patrol for a dispatch exactly like an in-quarters unit, just with
+   * no turnout delay since they're already rolling.
+   */
+  autoPatrol: boolean;
   baseLayer: BaseLayer;
 }
 
@@ -249,10 +260,46 @@ export const useStore = create<Store>()(
         }
       };
 
+      let autoPatrolRunning = false;
+
+      /**
+       * Ambient patrol: every idle patrol-role unit (in quarters, or
+       * between legs) picks a random point inside its station's coverage
+       * area and drives there at the posted limit — no lights-and-siren
+       * boost — then does it again. Mirrors spawnCall/autoDispatchPass:
+       * the random waypoint and route lookup need rng/network the pure
+       * engine doesn't have, so that happens here and gets committed with
+       * `beginPatrol`. A unit dispatched to a real call mid-lookup is
+       * simply skipped — `beginPatrol` itself re-checks status before
+       * touching anything.
+       */
+      const autoPatrolPass = async () => {
+        if (autoPatrolRunning) return;
+        autoPatrolRunning = true;
+        try {
+          const dueIds = Object.values(get().game.units)
+            .filter((u) => !u.trip && (u.status === 'in_quarters' || u.status === 'patrolling') && canPatrol(u))
+            .map((u) => u.id);
+          for (const unitId of dueIds) {
+            if (!get().settings.autoPatrol) return; // turned off mid-pass
+            const game = get().game;
+            const unit = game.units[unitId];
+            const station = unit && game.stations[unit.stationId];
+            if (!unit || !station || unit.trip || (unit.status !== 'in_quarters' && unit.status !== 'patrolling')) continue;
+            const from = unitPosition(unit, game.clock);
+            const to = pickPatrolWaypoint(station, Math.random);
+            const route = await getRoute(from, to, get().settings.roadRouting);
+            setGame((g) => beginPatrol(g, unitId, route, to));
+          }
+        } finally {
+          autoPatrolRunning = false;
+        }
+      };
+
       return {
         game: createGame(Date.now()),
         speed: 1,
-        settings: { roadRouting: true, autoClear: false, autoDispatch: false, baseLayer: 'streets' },
+        settings: { roadRouting: true, autoClear: false, autoDispatch: false, autoPatrol: true, baseLayer: 'streets' },
         ui: initialUi(),
 
         advance(realDtMs) {
@@ -268,6 +315,7 @@ export const useStore = create<Store>()(
             }
           }
           if (settings.autoDispatch) void autoDispatchPass();
+          if (settings.autoPatrol) void autoPatrolPass();
         },
 
         setSpeed: (speed) => set({ speed }),

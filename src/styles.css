@@ -568,6 +568,10 @@ input[type='checkbox'] {
   background: rgb(59 130 246 / 0.2);
   color: #93c5fd;
 }
+.chip-u-patrolling {
+  background: rgb(20 184 166 / 0.18);
+  color: #5eead4;
+}
 
 /* detail views */
 .detail {
@@ -923,6 +927,10 @@ input[type='checkbox'] {
 .mk-unit.us-returning {
   opacity: 0.75;
   filter: saturate(0.5);
+}
+.mk-unit.us-patrolling {
+  opacity: 0.85;
+  filter: saturate(0.7);
 }
 .mk-unit.us-dispatched {
   outline: 2px dashed var(--amber);

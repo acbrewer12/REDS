@@ -6,13 +6,17 @@ import {
   addMission,
   addStation,
   addUnit,
+  beginPatrol,
   candidatesForMission,
+  canPatrol,
   closeMission,
   createGame,
   dispatchUnit,
   eligibleMissionTypes,
   estimateRoute,
+  isAvailable,
   nearestDispatchCenter,
+  pickPatrolWaypoint,
   planCall,
   releaseUnit,
   removeStation,
@@ -155,6 +159,54 @@ describe('engine — single-station loop', () => {
 
     state = runUntil(state, (s) => s.units[brush.id]!.status === 'on_scene');
     expect(unitSpeedMph(state.units[brush.id]!, state.clock)).toBe(0);
+  });
+
+  it('drives idle patrol units at the posted limit, and pulls one off its beat with no turnout when a call comes in', () => {
+    let { state, stationId, rng } = setup('salem-pd');
+    const unit = unitBy(state, 'Unit 1');
+    expect(canPatrol(unit)).toBe(true);
+    expect(unit.status).toBe('in_quarters');
+
+    const station = state.stations[stationId]!;
+    const waypoint = pickPatrolWaypoint(station, rng);
+    expect(haversineMeters(station.position, waypoint)).toBeLessThanOrEqual(station.responseRadiusKm * 1000 + 1);
+
+    const route = estimateRoute(SALEM, waypoint);
+    state = beginPatrol(state, unit.id, route, waypoint);
+    let u = state.units[unit.id]!;
+    expect(u.status).toBe('patrolling');
+    expect(isAvailable(u)).toBe(true); // still assignable while out on the beat
+
+    // Legal speed: Math.max(1, roadTimeFactor) — never the <1 code-3 boost
+    // a real dispatch gets — so this is slower (or equal) than an emergency
+    // response over the same route.
+    const spec = getSpec(unit.specId);
+    const dispatchTravelSec = route.carDurationSec * spec.roadTimeFactor;
+    const patrolTravelSec = route.carDurationSec * Math.max(1, spec.roadTimeFactor);
+    expect(patrolTravelSec).toBeGreaterThanOrEqual(dispatchTravelSec);
+    expect(u.trip!.arriveAt - u.trip!.departAt).toBeCloseTo(Math.max(1, patrolTravelSec) * 1000, 0);
+    expect(unitSpeedMph(u, state.clock + 1000)).toBeGreaterThan(0);
+
+    // Finishing a leg clears the trip but keeps the unit out and available —
+    // the engine can't pick the next random waypoint (needs rng), so it
+    // just waits there for the caller to start another leg.
+    state = tick(state, u.trip!.arriveAt - u.trip!.departAt);
+    u = state.units[unit.id]!;
+    expect(u.status).toBe('patrolling');
+    expect(u.trip).toBeNull();
+    expect(haversineMeters(u.position, waypoint)).toBeLessThan(1);
+
+    // A call comes in: the patrolling unit is pulled off its beat from
+    // wherever it is now, with zero turnout — it's already rolling.
+    const added = addMission(
+      state,
+      { stationId, typeId: 'suspicious-vehicle', position: SCENE, narrative: '', workRequiredSec: 300 },
+      'x',
+    );
+    state = dispatchUnit(added.state, unit.id, added.missionId, estimateRoute(waypoint, SCENE));
+    u = state.units[unit.id]!;
+    expect(u.status).toBe('en_route'); // no 'dispatched' turnout phase
+    expect(u.trip!.departAt).toBe(state.clock);
   });
 
   it('pauses work when a required unit leaves the scene', () => {

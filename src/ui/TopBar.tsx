@@ -213,6 +213,19 @@ function SettingsMenu() {
               <span className="muted small block">Assign the recommended units to every call automatically.</span>
             </span>
           </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.autoPatrol}
+              onChange={(e) => updateSettings({ autoPatrol: e.target.checked })}
+            />
+            <span>
+              Patrol when idle
+              <span className="muted small block">
+                Idle patrol units drive the beat at the posted limit instead of sitting at the station.
+              </span>
+            </span>
+          </label>
           <label className="field">
             <span>Map style</span>
             <select

@@ -69,8 +69,9 @@ export interface ApparatusSpec {
  *  en_route    — responding
  *  on_scene    — working the incident
  *  returning   — available, driving back to quarters (can be re-assigned)
+ *  patrolling  — available, driving ambient patrol legs at the posted limit (can be re-assigned)
  */
-export type UnitStatus = 'in_quarters' | 'dispatched' | 'en_route' | 'on_scene' | 'returning';
+export type UnitStatus = 'in_quarters' | 'dispatched' | 'en_route' | 'on_scene' | 'returning' | 'patrolling';
 
 /** A movement along a path. Positions are derived from (trip, clock). */
 export interface Trip {

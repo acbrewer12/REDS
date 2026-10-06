@@ -284,20 +284,25 @@ function RouteLayer() {
   return (
     <>
       {Object.values(units)
-        .filter((u) => u.trip && (u.status === 'en_route' || u.status === 'dispatched' || u.status === 'returning'))
+        .filter(
+          (u) =>
+            u.trip &&
+            (u.status === 'en_route' || u.status === 'dispatched' || u.status === 'returning' || u.status === 'patrolling'),
+        )
         .map((u) => {
           const returning = u.status === 'returning';
-          const selected = !returning && u.missionId === selectedMissionId;
+          const patrolling = u.status === 'patrolling';
+          const selected = !returning && !patrolling && u.missionId === selectedMissionId;
           return (
             <Polyline
               key={u.id}
               positions={remainingPath(u.trip!, clock).map(tuple)}
               interactive={false}
               pathOptions={{
-                color: returning ? '#93c5fd' : selected ? '#fb923c' : '#f97316',
+                color: patrolling ? '#2dd4bf' : returning ? '#93c5fd' : selected ? '#fb923c' : '#f97316',
                 weight: selected ? 5 : 3,
-                dashArray: returning ? '4 8' : undefined,
-                opacity: returning ? 0.5 : selected ? 0.95 : 0.6,
+                dashArray: patrolling || returning ? '4 8' : undefined,
+                opacity: patrolling ? 0.35 : returning ? 0.5 : selected ? 0.95 : 0.6,
               }}
             />
           );
