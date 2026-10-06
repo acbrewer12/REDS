@@ -214,6 +214,8 @@ export const MISSION_TYPES: MissionType[] = [
     workMinutes: [8, 20],
     credits: 120,
     weight: 8,
+    // Lights/siren would just tip the subject off before the unit arrives.
+    emergencyResponse: false,
     narratives: [
       'Vehicle parked behind the closed business with lights off, occupied.',
       'Unknown truck has been sitting at the end of the caller’s gravel road for an hour.',
@@ -228,6 +230,10 @@ export const MISSION_TYPES: MissionType[] = [
     workMinutes: [8, 15],
     credits: 120,
     weight: 8,
+    // Unverified alarm — the overwhelming majority are false; standard
+    // procedure is a routine (non-emergency) response unless something
+    // upgrades it (open door, witness, duress signal).
+    emergencyResponse: false,
     narratives: ['Alarm company reports rear door contact, no keyholder.', 'Motion alarm at the pharmacy, after hours.'],
   },
   {
@@ -253,6 +259,7 @@ export const MISSION_TYPES: MissionType[] = [
     workMinutes: [20, 40],
     credits: 200,
     weight: 5,
+    emergencyResponse: false, // subject is already detained — no urgency
     narratives: ['Store loss prevention has a shoplifter detained in the office.'],
   },
   {
@@ -264,6 +271,7 @@ export const MISSION_TYPES: MissionType[] = [
     workMinutes: [10, 25],
     credits: 120,
     weight: 6,
+    emergencyResponse: false, // routine unless the caller reports something more specific
     narratives: [
       'Family out of state has not heard from their elderly father in three days.',
       'Mail piling up at the residence, newspaper on the porch since last week.',
@@ -278,6 +286,7 @@ export const MISSION_TYPES: MissionType[] = [
     workMinutes: [15, 40],
     credits: 150,
     weight: 4,
+    emergencyResponse: false, // a hazard, but routine driving gets there plenty fast
     narratives: [
       'Six head of cattle out on the highway, fence down. Owner unknown.',
       'Horse loose on the county road near the low-water crossing.',
@@ -292,6 +301,7 @@ export const MISSION_TYPES: MissionType[] = [
     workMinutes: [15, 30],
     credits: 180,
     weight: 6,
+    emergencyResponse: false, // no injuries reported
     narratives: ['Minor fender-bender in the grocery store lot, no injuries, parties need a report.'],
   },
 

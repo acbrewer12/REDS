@@ -69,14 +69,23 @@ export interface ApparatusSpec {
  *  en_route    — responding
  *  on_scene    — working the incident
  *  returning   — available, driving back to quarters (can be re-assigned)
+ *  patrolling  — available, driving ambient patrol legs at the posted limit (can be re-assigned)
  */
-export type UnitStatus = 'in_quarters' | 'dispatched' | 'en_route' | 'on_scene' | 'returning';
+export type UnitStatus = 'in_quarters' | 'dispatched' | 'en_route' | 'on_scene' | 'returning' | 'patrolling';
 
 /** A movement along a path. Positions are derived from (trip, clock). */
 export interface Trip {
   path: LatLng[];
   /** Cumulative distance in meters for each path vertex (cumDist[0] === 0). */
   cumDist: number[];
+  /**
+   * Cumulative time in ms from `departAt` for each path vertex
+   * (cumTime[0] === 0, cumTime.at(-1) === arriveAt - departAt). Segment
+   * speed can vary — a real road route times each segment from its own
+   * data, so a unit covers a highway stretch faster than a residential
+   * one, instead of one flat trip-average pace.
+   */
+  cumTime: number[];
   /** Sim time (ms) the wheels start rolling. */
   departAt: number;
   /** Sim time (ms) the unit arrives. */
@@ -100,6 +109,17 @@ export interface Unit {
 
 export type StaffingModel = 'career' | 'combination' | 'volunteer';
 
+/**
+ * A group of stations that share one call pool and one dispatch-eligible
+ * unit pool — e.g. "Salem, MO" vs. "Anchorage, AK". Stations in different
+ * centers never see each other's calls or units; joining the same center
+ * (instead of starting a new one) is how a player opts in to mutual aid.
+ */
+export interface DispatchCenter {
+  id: string;
+  name: string;
+}
+
 export interface Station {
   id: string;
   name: string;
@@ -111,6 +131,8 @@ export interface Station {
   responseRadiusKm: number;
   /** Sim time (ms) the next call should be generated in this station's area. */
   nextCallAt: number;
+  /** Dispatch center this station belongs to — see {@link DispatchCenter}. */
+  centerId: string;
 }
 
 /**
@@ -170,6 +192,18 @@ export interface MissionType {
   weight: number;
   /** Caller / CAD narrative lines; one is picked per call. */
   narratives: string[];
+  /**
+   * Whether units responding to this call run lights-and-siren (faster than
+   * traffic — see Apparatus.roadTimeFactor) or drive at the posted limit
+   * like a non-emergency return trip. Defaults to true (emergency/"hot")
+   * when unset — most call types warrant it. Set false for calls real
+   * departments typically run cold: an unverified alarm (the overwhelming
+   * majority are false, and routine response to them is standard
+   * procedure), a suspicious-vehicle check (lights would just tip the
+   * subject off), a cold report, or anything with no injuries and nothing
+   * actively happening.
+   */
+  emergencyResponse?: boolean;
 }
 
 export type LogKind = 'call' | 'dispatch' | 'status' | 'clear' | 'system';
@@ -183,11 +217,12 @@ export interface LogEntry {
 }
 
 export interface GameState {
-  version: 1;
+  version: 2;
   /** Real-world epoch (ms) that sim time 0 corresponds to, for CAD clock display. */
   epoch: number;
   /** Elapsed sim time in ms. */
   clock: number;
+  dispatchCenters: Record<string, DispatchCenter>;
   stations: Record<string, Station>;
   units: Record<string, Unit>;
   missions: Record<string, Mission>;

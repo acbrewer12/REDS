@@ -1,14 +1,21 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import { getMissionType } from './sim/data/missions';
 import { FLEET_PRESETS_BY_ID } from './sim/data/presets';
 import {
+  addDispatchCenter,
   addMission,
   addStation,
   addUnit,
+  beginPatrol,
+  candidatesForMission,
+  canPatrol,
   closeMission,
   createGame,
   dispatchUnit,
   isAvailable,
+  missionUnits,
+  pickPatrolWaypoint,
   planCall,
   releaseUnit,
   removeStation,
@@ -21,6 +28,8 @@ import {
   type NewStation,
   type Route,
 } from './sim/engine';
+import { buildCumTime } from './sim/geo';
+import { matchRequirements, recommendUnits } from './sim/requirements';
 import type { GameState, LatLng, Station } from './sim/types';
 import { getRoute, reverseGeocode, snapToRoad } from './services/mapServices';
 
@@ -79,6 +88,21 @@ export interface Settings {
   roadRouting: boolean;
   /** Clear calls automatically once the work is done. */
   autoClear: boolean;
+  /**
+   * Analyze every open call (required roles, water, personnel, distance,
+   * availability) and assign units automatically, the same way "Select
+   * recommended" + Dispatch would. Manual dispatch and release always
+   * still work — this just means a call doesn't have to wait on you.
+   */
+  autoDispatch: boolean;
+  /**
+   * Idle patrol units (role 'patrol') drive ambient legs around their
+   * station's coverage area at the posted limit — no lights-and-siren
+   * boost — instead of just sitting at the station. They're still pulled
+   * off patrol for a dispatch exactly like an in-quarters unit, just with
+   * no turnout delay since they're already rolling.
+   */
+  autoPatrol: boolean;
   baseLayer: BaseLayer;
 }
 
@@ -125,7 +149,14 @@ interface Store {
   startPlacing(): void;
   cancelPlacing(): void;
   draftStationAt(position: LatLng, address?: string): void;
-  confirmStation(input: Omit<NewStation, 'position'> & { presetId: string }): void;
+  /**
+   * `centerId: null` starts a brand-new dispatch center named `newCenterName`
+   * (falling back to "<station name> Dispatch"); an existing id joins that
+   * center's shared call/unit pool instead — the explicit mutual-aid choice.
+   */
+  confirmStation(
+    input: Omit<NewStation, 'position' | 'centerId'> & { presetId: string; centerId: string | null; newCenterName?: string },
+  ): void;
   editStation(id: string, patch: Partial<Pick<Station, 'name' | 'address' | 'staffing' | 'responseRadiusKm'>>): void;
   deleteStation(id: string): void;
 
@@ -191,10 +222,85 @@ export const useStore = create<Store>()(
         setGame((g) => addMission(g, { ...plan, position }, address).state);
       };
 
+      // advance() runs several times a second; a pass takes real time (route
+      // lookups), so a flag — not component state — keeps passes from piling up.
+      let autoDispatchRunning = false;
+
+      /**
+       * The M3 auto-dispatch AI: walk every open call that isn't fully
+       * covered yet, oldest first (so an older call isn't repeatedly
+       * leapfrogged by newer ones for the same nearby units), and assign
+       * the same recommended set "Select recommended" would — closest and
+       * best-suited units first, holding back a center's last unit of a
+       * kind until nothing else can fill that slot. Purely additive: manual
+       * dispatch and release work exactly as before, any time.
+       */
+      const autoDispatchPass = async () => {
+        if (autoDispatchRunning) return;
+        autoDispatchRunning = true;
+        try {
+          const openMissionIds = Object.values(get().game.missions)
+            .filter((m) => m.status === 'pending' || m.status === 'dispatched')
+            .sort((a, b) => a.createdAt - b.createdAt)
+            .map((m) => m.id);
+          for (const missionId of openMissionIds) {
+            if (!get().settings.autoDispatch) return; // turned off mid-pass
+            if (get().ui.busy[missionId]) continue;
+            const game = get().game;
+            const mission = game.missions[missionId];
+            if (!mission || (mission.status !== 'pending' && mission.status !== 'dispatched')) continue;
+            const type = getMissionType(mission.typeId);
+            const assigned = missionUnits(game, mission);
+            if (matchRequirements(type, assigned).met) continue;
+            const candidates = candidatesForMission(game, mission).map((c) => c.unit);
+            const pick = recommendUnits(type, assigned, candidates);
+            if (pick && pick.length > 0) await get().dispatch(missionId, pick.map((u) => u.id));
+          }
+        } finally {
+          autoDispatchRunning = false;
+        }
+      };
+
+      let autoPatrolRunning = false;
+
+      /**
+       * Ambient patrol: every idle patrol-role unit (in quarters, or
+       * between legs) picks a random point inside its station's coverage
+       * area and drives there at the posted limit — no lights-and-siren
+       * boost — then does it again. Mirrors spawnCall/autoDispatchPass:
+       * the random waypoint and route lookup need rng/network the pure
+       * engine doesn't have, so that happens here and gets committed with
+       * `beginPatrol`. A unit dispatched to a real call mid-lookup is
+       * simply skipped — `beginPatrol` itself re-checks status before
+       * touching anything.
+       */
+      const autoPatrolPass = async () => {
+        if (autoPatrolRunning) return;
+        autoPatrolRunning = true;
+        try {
+          const dueIds = Object.values(get().game.units)
+            .filter((u) => !u.trip && (u.status === 'in_quarters' || u.status === 'patrolling') && canPatrol(u))
+            .map((u) => u.id);
+          for (const unitId of dueIds) {
+            if (!get().settings.autoPatrol) return; // turned off mid-pass
+            const game = get().game;
+            const unit = game.units[unitId];
+            const station = unit && game.stations[unit.stationId];
+            if (!unit || !station || unit.trip || (unit.status !== 'in_quarters' && unit.status !== 'patrolling')) continue;
+            const from = unitPosition(unit, game.clock);
+            const to = pickPatrolWaypoint(station, Math.random);
+            const route = await getRoute(from, to, get().settings.roadRouting);
+            setGame((g) => beginPatrol(g, unitId, route, to));
+          }
+        } finally {
+          autoPatrolRunning = false;
+        }
+      };
+
       return {
         game: createGame(Date.now()),
         speed: 1,
-        settings: { roadRouting: true, autoClear: false, baseLayer: 'streets' },
+        settings: { roadRouting: true, autoClear: false, autoDispatch: false, autoPatrol: true, baseLayer: 'streets' },
         ui: initialUi(),
 
         advance(realDtMs) {
@@ -209,6 +315,8 @@ export const useStore = create<Store>()(
               if (m.status === 'resolved' && !get().ui.busy[m.id]) void get().closeMission(m.id, 'completed');
             }
           }
+          if (settings.autoDispatch) void autoDispatchPass();
+          if (settings.autoPatrol) void autoPatrolPass();
         },
 
         setSpeed: (speed) => set({ speed }),
@@ -243,10 +351,21 @@ export const useStore = create<Store>()(
             if (d && d.position === position) patchUi({ draftStation: { ...d, address: addr, resolving: false } });
           });
         },
-        confirmStation({ presetId, ...input }) {
+        confirmStation({ presetId, centerId, newCenterName, ...input }) {
           const draft = get().ui.draftStation;
           if (!draft) return;
-          let { state, stationId } = addStation(get().game, { ...input, position: draft.position }, Math.random);
+          let game = get().game;
+          let resolvedCenterId = centerId;
+          if (!resolvedCenterId) {
+            const created = addDispatchCenter(game, newCenterName?.trim() || `${input.name} Dispatch`);
+            game = created.state;
+            resolvedCenterId = created.centerId;
+          }
+          let { state, stationId } = addStation(
+            game,
+            { ...input, position: draft.position, centerId: resolvedCenterId },
+            Math.random,
+          );
           for (const u of FLEET_PRESETS_BY_ID[presetId]?.units ?? []) state = addUnit(state, stationId, u.specId, u.callsign);
           set({ game: state });
           patchUi({ draftStation: null, selectedStationId: stationId, tab: 'stations', sheetExpanded: true });
@@ -309,11 +428,35 @@ export const useStore = create<Store>()(
     },
     {
       name: 'reds-save',
-      version: 1,
+      version: 3,
       storage: createJSONStorage(() => throttledLocalStorage),
       partialize: (s) => ({ game: s.game, speed: s.speed, settings: s.settings }),
-      // Pre-1.0 saves: nothing to migrate yet; bump `version` and transform here when the schema changes.
-      migrate: (persisted) => persisted as Pick<Store, 'game' | 'speed' | 'settings'>,
+      // v1 → v2 (Milestone 2): added dispatch centers. Put every pre-existing
+      // station into one legacy center so old saves keep working unchanged.
+      // v2 → v3: Trip gained cumTime (lets speed vary by road segment
+      // instead of being one flat trip-average — see sim/geo.ts). A unit
+      // mid-trip in an old save has a trip with no cumTime at all, which
+      // crashes the whole app on load (every render reads it); rebuild it
+      // with the old constant-speed split so that trip finishes exactly as
+      // it would have before this existed.
+      migrate: (persisted, version) => {
+        const p = persisted as { game: GameState; speed: Speed; settings: Settings };
+        if (version < 2 && p.game && !p.game.dispatchCenters) {
+          const centerId = 'dc-legacy';
+          p.game.dispatchCenters = { [centerId]: { id: centerId, name: 'Dispatch Center 1' } };
+          for (const station of Object.values(p.game.stations ?? {})) (station as Station).centerId = centerId;
+          p.game.version = 2;
+        }
+        if (version < 3 && p.game) {
+          for (const unit of Object.values(p.game.units ?? {})) {
+            const trip = unit.trip as (typeof unit.trip & { cumTime?: number[] }) | null;
+            if (trip && !trip.cumTime) {
+              trip.cumTime = buildCumTime(trip.cumDist, undefined, Math.max(1, trip.arriveAt - trip.departAt));
+            }
+          }
+        }
+        return p;
+      },
     },
   ),
 );

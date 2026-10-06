@@ -5,9 +5,10 @@
 import { getSpec } from './data/apparatus';
 import { getMissionType, MISSION_TYPES } from './data/missions';
 import { POLICE_TURNOUT_SECONDS, TURNOUT_SECONDS } from './data/presets';
-import { cumulativeDistances, haversineMeters, randomPointInRadius, tripPosition } from './geo';
-import { matchRequirements } from './requirements';
+import { buildCumTime, cumulativeDistances, haversineMeters, randomPointInRadius, tripCurrentSegment, tripPosition } from './geo';
+import { matchRequirements, rankCandidates } from './requirements';
 import type {
+  ApparatusSpec,
   Discipline,
   GameState,
   LatLng,
@@ -20,6 +21,9 @@ import type {
   Unit,
 } from './types';
 
+/** A new dispatch center farther than this from every existing one won't be auto-suggested for mutual aid. */
+export const MUTUAL_AID_SUGGEST_KM = 150;
+
 /** Mean sim-seconds between calls in one station's area. */
 export const CALL_INTERVAL_SEC = 300;
 /** A station's area stops generating calls while this many are open. */
@@ -30,6 +34,8 @@ export const ESTIMATE_CIRCUITY = 1.35;
 export const ESTIMATE_CAR_KPH = 64;
 /** Non-emergency return trips run slower than a lights-and-siren response. */
 export const RETURN_TIME_FACTOR = 1.15;
+/** How far out (min/max, meters) a patrol leg wanders from its station. */
+export const PATROL_LEG_MIN_M = 400;
 const LOG_LIMIT = 300;
 
 /** A drivable path between two points, as a passenger car would drive it. */
@@ -38,13 +44,23 @@ export interface Route {
   distanceM: number;
   carDurationSec: number;
   source: 'road' | 'estimate';
+  /**
+   * Real per-segment duration (seconds) between consecutive `path` points —
+   * from a road router's per-edge timing (OSRM's `annotations=true`), one
+   * entry per segment (length === path.length - 1). Lets a trip's speed
+   * vary with the road (slower on a residential street, faster on a
+   * highway) instead of being one flat trip-average. Absent for a
+   * straight-line estimate, which has no such data.
+   */
+  segDurationsSec?: number[];
 }
 
 export function createGame(epoch: number): GameState {
   return {
-    version: 1,
+    version: 2,
     epoch,
     clock: 0,
+    dispatchCenters: {},
     stations: {},
     units: {},
     missions: {},
@@ -61,6 +77,7 @@ export function createGame(epoch: number): GameState {
 function draft(state: GameState): GameState {
   return {
     ...state,
+    dispatchCenters: { ...state.dispatchCenters },
     stations: { ...state.stations },
     units: { ...state.units },
     missions: { ...state.missions },
@@ -99,28 +116,75 @@ export function unitPosition(unit: Unit, t: number): LatLng {
   return unit.trip ? tripPosition(unit.trip, t) : unit.position;
 }
 
-/** Units in quarters, or driving home, can take a new assignment. */
-export function isAvailable(unit: Unit): boolean {
-  return unit.status === 'in_quarters' || unit.status === 'returning';
+/**
+ * A moving unit's current road speed in mph, for display only — reads the
+ * actual road segment it's on right now (see `Trip.cumTime`), not one flat
+ * trip-average, so it climbs on a highway stretch and drops back through a
+ * residential one the way a real speedometer would. Zero while the unit
+ * isn't actually rolling (turning out, on scene, in quarters).
+ */
+export function unitSpeedMph(unit: Unit, t: number): number {
+  const trip = unit.trip;
+  if (!trip || t < trip.departAt || t >= trip.arriveAt) return 0;
+  const [distanceM, durationSec] = tripCurrentSegment(trip, t);
+  if (durationSec <= 0) return 0;
+  return distanceM / durationSec / 0.44704; // m/s → mph
 }
 
-/** Seconds from dispatch until this unit would arrive via `route`. */
-export function etaSeconds(state: GameState, unit: Unit, route: Route): number {
+/** Units in quarters, driving home, or out on patrol can take a new assignment. */
+export function isAvailable(unit: Unit): boolean {
+  return unit.status === 'in_quarters' || unit.status === 'returning' || unit.status === 'patrolling';
+}
+
+/** Whether this unit's apparatus is the kind that roams on ambient patrol when idle. */
+export function canPatrol(unit: Unit): boolean {
+  return getSpec(unit.specId).roles.includes('patrol');
+}
+
+/** A random point inside a station's coverage area for the next patrol leg. */
+export function pickPatrolWaypoint(station: Station, rng: () => number): LatLng {
+  return randomPointInRadius(station.position, station.responseRadiusKm * 1000, rng, PATROL_LEG_MIN_M);
+}
+
+/**
+ * Travel-time multiplier for one leg of driving: a lights-and-siren
+ * ("hot"/code-3) response gets the apparatus's own factor — which can be
+ * <1, faster than traffic — while anything non-emergency (a call type
+ * marked `emergencyResponse: false`, a return trip, ambient patrol) is
+ * clamped to never beat the posted limit.
+ */
+function responseTimeFactor(spec: ApparatusSpec, emergency: boolean): number {
+  return emergency ? spec.roadTimeFactor : Math.max(1, spec.roadTimeFactor);
+}
+
+/** Seconds from dispatch until this unit would arrive via `route`, responding to `mission`. */
+export function etaSeconds(state: GameState, unit: Unit, route: Route, mission: Mission): number {
   const station = state.stations[unit.stationId]!;
   const spec = getSpec(unit.specId);
   const turnout = unit.status === 'in_quarters' ? turnoutSeconds(station.staffing, spec.discipline) : 0;
-  return turnout + route.carDurationSec * spec.roadTimeFactor;
+  const emergency = missionType(mission).emergencyResponse !== false;
+  return turnout + route.carDurationSec * responseTimeFactor(spec, emergency);
 }
 
 function makeTrip(route: Route, from: LatLng, to: LatLng, departAt: number, travelSec: number): Trip {
   // Routers snap endpoints to the nearest road; pin the path to the real
   // start/end so the marker leaves the station and stops on the incident.
   const path = [from, ...route.path, to];
+  const cumDist = cumulativeDistances(path);
+  const totalMs = Math.max(1, travelSec) * 1000;
+  // route.segDurationsSec (real road data) lines up with route.path's own
+  // internal segments; the prepended from→road and appended road→to stubs
+  // above don't have their own timing and fall back to a distance share
+  // (see buildCumTime) — negligible next to the real route either way.
+  const weights = route.segDurationsSec
+    ? path.slice(0, -1).map((_, i) => route.segDurationsSec![i - 1])
+    : undefined;
   return {
     path,
-    cumDist: cumulativeDistances(path),
+    cumDist,
+    cumTime: buildCumTime(cumDist, weights, totalMs),
     departAt,
-    arriveAt: departAt + Math.max(1, travelSec) * 1000,
+    arriveAt: departAt + totalMs,
     source: route.source,
   };
 }
@@ -137,6 +201,96 @@ export function isOpen(m: Mission): boolean {
   return m.status !== 'completed' && m.status !== 'cancelled';
 }
 
+export interface DispatchCandidate {
+  unit: Unit;
+  etaSec: number;
+  distanceM: number;
+}
+
+/**
+ * Units available to respond to a mission, scoped to its dispatch center
+ * (a unit housed in an unrelated, far-away region never shows up), ranked
+ * closest/best-suited first using straight-line ETA estimates — fast enough
+ * to run every tick; a real road ETA is only fetched once a dispatch is
+ * confirmed.
+ *
+ * Within an ETA/suitability tier, a unit that is the *only* available cover
+ * for one of its roles in the center is pushed to the back. That alone
+ * keeps both "Select recommended" and the auto-dispatch AI from reflexively
+ * grabbing a district's last brush truck for a borderline call — they'll
+ * still take it if nothing else can cover the slot, just not before trying
+ * every unit that has backup.
+ */
+export function candidatesForMission(state: GameState, mission: Mission): DispatchCandidate[] {
+  const centerId = state.stations[mission.stationId]?.centerId;
+  const pool = Object.values(state.units).filter(
+    (unit) => isAvailable(unit) && (!centerId || state.stations[unit.stationId]?.centerId === centerId),
+  );
+  const roleAvailability = new Map<string, number>();
+  for (const unit of pool) {
+    for (const role of getSpec(unit.specId).roles) roleAvailability.set(role, (roleAvailability.get(role) ?? 0) + 1);
+  }
+  const isSoleCover = (unit: Unit) => getSpec(unit.specId).roles.some((r) => roleAvailability.get(r) === 1);
+
+  const candidates = pool.map((unit) => {
+    const from = unitPosition(unit, state.clock);
+    const route = estimateRoute(from, mission.position);
+    return { unit, etaSec: etaSeconds(state, unit, route, mission), distanceM: haversineMeters(from, mission.position) };
+  });
+  const ranked = rankCandidates(missionType(mission), candidates);
+  // Array.prototype.sort is stable, so this only reorders across the sole/not-sole
+  // boundary and leaves the existing ETA/suitability order intact within each group.
+  return [...ranked].sort((a, b) => Number(isSoleCover(a.unit)) - Number(isSoleCover(b.unit)));
+}
+
+// ── dispatch centers ───────────────────────────────────────────────────
+
+/** Create a new, empty dispatch center (a region's independent call/unit pool). */
+export function addDispatchCenter(state: GameState, name: string): { state: GameState; centerId: string } {
+  const s = draft(state);
+  const id = newId(s, 'dc');
+  s.dispatchCenters[id] = { id, name: name.trim() || 'Dispatch Center' };
+  return { state: s, centerId: id };
+}
+
+export function renameDispatchCenter(state: GameState, centerId: string, name: string): GameState {
+  const center = state.dispatchCenters[centerId];
+  if (!center || !name.trim()) return state;
+  const s = draft(state);
+  s.dispatchCenters[centerId] = { ...center, name: name.trim() };
+  return s;
+}
+
+/** Stations that belong to one dispatch center. */
+export function stationsInCenter(state: GameState, centerId: string): Station[] {
+  return Object.values(state.stations).filter((st) => st.centerId === centerId);
+}
+
+/** Units housed at any station in one dispatch center — the center's shared dispatch pool. */
+export function unitsInCenter(state: GameState, centerId: string): Unit[] {
+  const ids = new Set(stationsInCenter(state, centerId).map((st) => st.id));
+  return Object.values(state.units).filter((u) => ids.has(u.stationId));
+}
+
+/**
+ * The nearest existing dispatch center to `position`, if one is within
+ * {@link MUTUAL_AID_SUGGEST_KM} — used to default the "join vs. start a new
+ * center" choice when placing a station, without forcing it either way.
+ */
+export function nearestDispatchCenter(
+  state: GameState,
+  position: LatLng,
+): { centerId: string; distanceKm: number } | null {
+  let best: { centerId: string; distanceKm: number } | null = null;
+  for (const station of Object.values(state.stations)) {
+    const distanceKm = haversineMeters(position, station.position) / 1000;
+    if (distanceKm <= MUTUAL_AID_SUGGEST_KM && (!best || distanceKm < best.distanceKm)) {
+      best = { centerId: station.centerId, distanceKm };
+    }
+  }
+  return best;
+}
+
 // ── stations & fleet ───────────────────────────────────────────────────
 
 export interface NewStation {
@@ -146,6 +300,8 @@ export interface NewStation {
   position: LatLng;
   staffing: StaffingModel;
   responseRadiusKm: number;
+  /** Dispatch center this station joins — create one first with {@link addDispatchCenter} for a new region. */
+  centerId: string;
 }
 
 export function addStation(
@@ -153,6 +309,7 @@ export function addStation(
   input: NewStation,
   rng: () => number,
 ): { state: GameState; stationId: string } {
+  if (!state.dispatchCenters[input.centerId]) throw new Error(`Unknown dispatch center: ${input.centerId}`);
   const s = draft(state);
   const id = newId(s, 'st');
   // First call comes quickly so a new player sees the loop working.
@@ -183,6 +340,8 @@ export function removeStation(state: GameState, stationId: string): GameState {
   const s = draft(state);
   delete s.stations[stationId];
   for (const u of units) delete s.units[u.id];
+  // Drop a center once it has no stations left, so the join/create picker doesn't fill with ghosts.
+  if (!Object.values(s.stations).some((st) => st.centerId === station.centerId)) delete s.dispatchCenters[station.centerId];
   log(s, 'system', `${station.name} removed.`);
   return s;
 }
@@ -247,9 +406,13 @@ function disciplinesFor(station: Station): Discipline[] {
   return ['fire', 'ems']; // fire-based EMS: medical calls appear once an ambulance exists
 }
 
-/** Call types this station's area can generate: right discipline, and the whole fleet could handle it. */
+/**
+ * Call types this station's area can generate: right discipline, and
+ * coverable by its dispatch center's pooled fleet (every station sharing
+ * that center) — not by stations in other, unrelated centers.
+ */
 export function eligibleMissionTypes(state: GameState, station: Station): MissionType[] {
-  const fleet = Object.values(state.units);
+  const fleet = unitsInCenter(state, station.centerId);
   const disciplines = disciplinesFor(station);
   return MISSION_TYPES.filter((t) => disciplines.includes(t.discipline) && matchRequirements(t, fleet).met);
 }
@@ -346,12 +509,13 @@ export function dispatchUnit(state: GameState, unitId: string, missionId: string
   const s = draft(state);
   const from = unitPosition(unit, s.clock);
   const turnout = unit.status === 'in_quarters' ? turnoutSeconds(station.staffing, spec.discipline) : 0;
+  const emergency = missionType(mission).emergencyResponse !== false;
   const trip = makeTrip(
     route,
     from,
     mission.position,
     s.clock + turnout * 1000,
-    route.carDurationSec * spec.roadTimeFactor,
+    route.carDurationSec * responseTimeFactor(spec, emergency),
   );
 
   s.units[unitId] = {
@@ -413,7 +577,7 @@ function sendHome(s: GameState, unit: Unit, route: Route | null) {
   const from = unitPosition(unit, s.clock);
   const r = route ?? estimateRoute(from, station.position);
   const spec = getSpec(unit.specId);
-  const travelSec = r.carDurationSec * Math.max(1, spec.roadTimeFactor) * RETURN_TIME_FACTOR;
+  const travelSec = r.carDurationSec * responseTimeFactor(spec, false) * RETURN_TIME_FACTOR;
   s.units[unit.id] = {
     ...unit,
     status: 'returning',
@@ -422,6 +586,30 @@ function sendHome(s: GameState, unit: Unit, route: Route | null) {
     trip: makeTrip(r, from, station.position, s.clock, travelSec),
     statusSince: s.clock,
   };
+}
+
+/**
+ * Send an idle patrol unit out on its next ambient patrol leg, from wherever
+ * it is now to `to` (pick one with {@link pickPatrolWaypoint}). Drives at the
+ * posted limit — no lights-and-siren boost — same clamp as a non-emergency
+ * return trip, but without the extra slowdown, since this is just a normal
+ * drive, not a tired crew idling back to the barn.
+ */
+export function beginPatrol(state: GameState, unitId: string, route: Route, to: LatLng): GameState {
+  const unit = state.units[unitId];
+  if (!unit || (unit.status !== 'in_quarters' && unit.status !== 'patrolling') || unit.trip) return state;
+  const spec = getSpec(unit.specId);
+  const s = draft(state);
+  const from = unitPosition(unit, s.clock);
+  const travelSec = route.carDurationSec * responseTimeFactor(spec, false);
+  s.units[unitId] = {
+    ...unit,
+    status: 'patrolling',
+    position: from,
+    trip: makeTrip(route, from, to, s.clock, travelSec),
+    statusSince: s.clock,
+  };
+  return s;
 }
 
 /**
@@ -486,6 +674,13 @@ export function tick(state: GameState, dtMs: number): GameState {
         statusSince: u.trip.arriveAt,
       };
       log(s, 'status', `${u.callsign} in quarters`, undefined, u.statusSince);
+    }
+    // Finished a patrol leg: sit at the waypoint, trip cleared, still
+    // 'patrolling' (and so still available) — the caller picks and routes
+    // the next leg (needs rng/network, which this pure tick can't do) and
+    // starts it with beginPatrol.
+    if (u.status === 'patrolling' && u.trip && t >= u.trip.arriveAt) {
+      u = { ...u, position: u.trip.path.at(-1)!, trip: null, statusSince: u.trip.arriveAt };
     }
     if (u !== unit) s.units[u.id] = u;
   }

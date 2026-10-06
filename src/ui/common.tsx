@@ -17,6 +17,7 @@ export const UNIT_STATUS: Record<UnitStatus, { code: string; label: string }> = 
   en_route: { code: 'ER', label: 'En route' },
   on_scene: { code: 'OS', label: 'On scene' },
   returning: { code: 'AV', label: 'Returning' },
+  patrolling: { code: 'PT', label: 'Patrolling' },
 };
 
 export function MissionChip({ status }: { status: MissionStatus }) {

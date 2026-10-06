@@ -271,6 +271,250 @@ export const APPARATUS: ApparatusSpec[] = [
     description: 'Pickup or UTV with a 50–200 gal slip-on; reaches fires on trails the bigger rigs cannot.',
   },
 
+  // ── Dent County FPD real apparatus (verified, see presets.ts) ─────────
+  // These model actual in-service rigs reported by the district rather than
+  // generic catalog types above. Kept separate so the generic NWCG rows
+  // above stay available for other presets (rural-fire-basic, career-fire).
+  {
+    id: 'dcfpd-ladder-8012',
+    name: '2006 Spartan / Rosenbauer 60\' Aerial (ex-Ladder 81)',
+    discipline: 'fire',
+    role: 'ladder',
+    roles: ['ladder', 'engine'],
+    standard: 'NFPA 1901 quint',
+    pumpGpm: 1500,
+    pumpPsi: 150,
+    tankGallons: 500,
+    aerialFeet: 60,
+    crew: 4,
+    minCrew: 4,
+    roadTimeFactor: 1.1,
+    offRoad: false,
+    cost: 900_000,
+    callsignPrefix: 'Ladder',
+    description:
+      'Rear-mount 60 ft aerial, 1,500 gpm pump, 500 gal tank. Ex-demo unit, formerly Ladder 81. District unit designation: Ladder 8012.',
+  },
+  {
+    id: 'dcfpd-engine-8010',
+    name: '2025 E-One Metro AFT',
+    discipline: 'fire',
+    role: 'engine',
+    roles: ['engine'],
+    nwcgType: 'Engine Type 1',
+    standard: 'NFPA 1901 pumper',
+    pumpGpm: 1500,
+    pumpPsi: 150,
+    tankGallons: 1000,
+    crew: 4,
+    minCrew: 4,
+    roadTimeFactor: 1.0,
+    offRoad: false,
+    cost: 600_000,
+    callsignPrefix: 'Engine',
+    description:
+      "District's newest engine, replacing a 1995 Freightliner. 1,500 gpm pump, 1,000 gal tank. District unit designation: Engine 8010. Source: Dent County FPD Facebook / community fire apparatus roster.",
+  },
+  {
+    id: 'dcfpd-engine-8020',
+    name: '2004 E-One / Saulsbury (ex-West Deptford FD, NJ)',
+    discipline: 'fire',
+    role: 'engine',
+    roles: ['engine'],
+    nwcgType: 'Engine Type 1',
+    standard: 'NFPA 1901 pumper',
+    pumpGpm: 1750,
+    pumpPsi: 150,
+    tankGallons: 750,
+    crew: 4,
+    minCrew: 4,
+    roadTimeFactor: 1.0,
+    offRoad: false,
+    cost: 450_000,
+    callsignPrefix: 'Engine',
+    description:
+      '4-seat crew cab (2-door-per-side) pumper. 1,750 gpm pump, 750 gal tank. Ex-West Deptford Fire Department (NJ), SO#128019 / VIN 4ENRBCA8541008019. District unit designation: Engine 8020.',
+  },
+  {
+    id: 'dcfpd-engine-8030',
+    name: '1996 Freightliner FL-80 Pumper',
+    discipline: 'fire',
+    role: 'engine',
+    roles: ['engine'],
+    nwcgType: 'Engine Type 1',
+    standard: 'NFPA 1901 pumper',
+    // Pump capacity was not in any spec sheet reachable for this unit; this
+    // is the best estimate from comparable 1996 Freightliner FL-80 pumpers
+    // of the era, not a confirmed number for this specific rig.
+    pumpGpm: 1250,
+    pumpPsi: 150,
+    tankGallons: 1000,
+    // Crew count follows a near-identical 1995 Freightliner FL-80
+    // Pumper/Rescue from O'Fallon FPD, specced "cab seating for 5 with 4
+    // SCBA seats" — used here as the closest known comparable, not this
+    // unit's own confirmed spec sheet.
+    crew: 5,
+    minCrew: 4,
+    roadTimeFactor: 1.0,
+    offRoad: false,
+    cost: 60_000,
+    callsignPrefix: 'Engine',
+    description:
+      "30 years old as of 2026 and PROVISIONAL: the district's Proposition Fire apparatus-replacement program may already have retired or " +
+      'transferred this unit — treat its presence in the active roster as uncertain until confirmed. Pump GPM and crew size are estimates ' +
+      "from comparable-era Freightliner FL-80 pumpers, not this rig's own verified spec sheet. District unit designation: Engine 8030.",
+  },
+  {
+    id: 'dcfpd-pumper-tanker-8013',
+    name: '2024 Freightliner / E-One Pumper-Tanker',
+    discipline: 'fire',
+    role: 'tanker',
+    roles: ['tanker', 'engine'],
+    nwcgType: 'Water Tender (Support) Type 1',
+    standard: 'NFPA 1901 mobile water supply',
+    pumpGpm: 1500,
+    pumpPsi: 150,
+    tankGallons: 2000,
+    crew: 2,
+    minCrew: 1,
+    roadTimeFactor: 1.15,
+    offRoad: false,
+    cost: 475_000,
+    callsignPrefix: 'Tanker',
+    description:
+      '1,500 gpm pump, 2,000 gal tank — fights fire directly as well as shuttling water. Replaced a 1992 International tanker. District unit designation: Pumper Tanker 8013.',
+  },
+  {
+    id: 'dcfpd-pumper-tanker-8023',
+    name: '2025 Freightliner / Fire Master Pumper-Tanker',
+    discipline: 'fire',
+    role: 'tanker',
+    roles: ['tanker', 'engine'],
+    nwcgType: 'Water Tender (Support) Type 1',
+    standard: 'NFPA 1901 mobile water supply',
+    pumpGpm: 1500,
+    pumpPsi: 150,
+    tankGallons: 3000,
+    crew: 2,
+    minCrew: 1,
+    roadTimeFactor: 1.2,
+    offRoad: false,
+    cost: 525_000,
+    callsignPrefix: 'Tanker',
+    description:
+      '1,500 gpm pump, 3,000 gal tank. Replaced a 2001 Sterling tanker. District unit designation: Pumper Tanker 8023.',
+  },
+  {
+    id: 'dcfpd-rescue-8016',
+    name: '2020 Chevrolet Silverado 1500 4x4 (ex-Truck 801)',
+    discipline: 'fire',
+    role: 'rescue',
+    roles: ['rescue'],
+    pumpGpm: 0,
+    tankGallons: 0,
+    crew: 2,
+    minCrew: 1,
+    roadTimeFactor: 0.9,
+    offRoad: true,
+    cost: 55_000,
+    callsignPrefix: 'Rescue',
+    description: 'Light rescue / utility pickup. District unit designation: Rescue 8016.',
+  },
+  {
+    id: 'dcfpd-brush-8018',
+    name: '1999 Ford F-450 Brush Truck (ex-Brush 88)',
+    discipline: 'fire',
+    role: 'brush',
+    roles: ['brush'],
+    nwcgType: 'Engine Type 6',
+    // Tank size for this specific rig was not confirmed in any source; this
+    // is a typical skid-unit estimate for an F-450 of this class.
+    pumpGpm: 50,
+    pumpPsi: 100,
+    tankGallons: 300,
+    crew: 2,
+    minCrew: 2,
+    roadTimeFactor: 1.1,
+    offRoad: true,
+    cost: 90_000,
+    callsignPrefix: 'Brush',
+    description:
+      '1-ton 4x4 brush truck, ex-Brush 88. Tank size (~300 gal) is an estimate for this chassis class, not a confirmed spec. District unit designation: Brush 8018.',
+  },
+  {
+    id: 'dcfpd-brush-8028',
+    name: '1992 Chevrolet Brush Truck (MDC loan)',
+    discipline: 'fire',
+    role: 'brush',
+    roles: ['brush'],
+    nwcgType: 'Engine Type 6',
+    pumpGpm: 50,
+    pumpPsi: 100,
+    tankGallons: 300,
+    crew: 2,
+    minCrew: 2,
+    roadTimeFactor: 1.1,
+    offRoad: true,
+    cost: 0,
+    callsignPrefix: 'Brush',
+    description: 'On loan from the Missouri Department of Conservation (MDC). District unit designation: Brush 8028.',
+  },
+  {
+    id: 'dcfpd-brush-8038',
+    name: 'Stewart & Stevenson FMTV Brush Truck (MDC loan, ex-Brush 86)',
+    discipline: 'fire',
+    role: 'brush',
+    roles: ['brush'],
+    nwcgType: 'Engine Type 4',
+    pumpGpm: 50,
+    pumpPsi: 100,
+    tankGallons: 750,
+    crew: 2,
+    minCrew: 2,
+    roadTimeFactor: 1.2,
+    offRoad: true,
+    cost: 0,
+    callsignPrefix: 'Brush',
+    description:
+      'Military-surplus FMTV 4x4, ex-Brush 86, on loan from the Missouri Department of Conservation (MDC). District unit designation: Brush 8038.',
+  },
+  {
+    id: 'dcfpd-truck-8026',
+    name: '2005 Ford F-450 Command/Hazmat Box (ex-Rescue 89, ex-MSHP)',
+    discipline: 'fire',
+    role: 'command',
+    roles: ['command'],
+    pumpGpm: 0,
+    tankGallons: 0,
+    crew: 2,
+    minCrew: 1,
+    roadTimeFactor: 0.95,
+    offRoad: false,
+    cost: 45_000,
+    callsignPrefix: 'Truck',
+    description:
+      'Ambulance-box command/hazmat vehicle, ex-Rescue 89, originally Missouri State Highway Patrol. District unit designation: Truck 8026.',
+  },
+  {
+    id: 'dcfpd-brush-pending-350',
+    name: '2025 Ford F-350 4x4 Brush Truck (ON ORDER)',
+    discipline: 'fire',
+    role: 'brush',
+    roles: ['brush'],
+    nwcgType: 'Engine Type 6',
+    pumpGpm: 50,
+    pumpPsi: 100,
+    tankGallons: 300,
+    crew: 2,
+    minCrew: 2,
+    roadTimeFactor: 1.0,
+    offRoad: true,
+    cost: 160_000,
+    callsignPrefix: 'Brush',
+    description:
+      'PENDING — on order, not yet in service as of the 2026 roster snapshot. Two of these were ordered. Funded by the "Proposition Fire" bond. Not placed in the default fleet preset until delivered.',
+  },
+
   // ── Special / command ─────────────────────────────────────────────────
   {
     id: 'rescue-heavy',
@@ -337,6 +581,176 @@ export const APPARATUS: ApparatusSpec[] = [
     cost: 65_000,
     callsignPrefix: 'Unit',
     description: 'Rural / county patrol pickup — slower than the utility on pavement, but gets down gravel and field roads.',
+  },
+
+  // ── International apparatus ──────────────────────────────────────────
+  // Generic apparatus built from each country/region's own published
+  // standard, not one named department's roster (the way the Dent County
+  // FPD / Salem PD units above are) — the same relationship rural-fire-basic
+  // and career-fire have to the NWCG/NFPA rows earlier in this file. Figures
+  // are converted to this file's US units (gpm, gal, ft) and rounded.
+  {
+    id: 'uk-pump-wrl',
+    name: 'Water Tender Ladder / Rescue Pump',
+    discipline: 'fire',
+    role: 'engine',
+    roles: ['engine', 'rescue'],
+    standard: 'UK Fire & Rescue NOG pump appliance',
+    pumpGpm: 660, // ~2,500 L/min @ 10 bar, typical UK main pump output
+    pumpPsi: 145,
+    tankGallons: 475, // ~1,800 L
+    crew: 5,
+    minCrew: 4,
+    roadTimeFactor: 1.0,
+    offRoad: false,
+    cost: 480_000,
+    callsignPrefix: 'Pump',
+    description:
+      'UK wholetime/on-call pump appliance (Water Tender Ladder / Rescue Pump), riding crew of 4-6, short extension ladder, ' +
+      'and — on the "Rescue Pump" variant — extrication gear. Figures are typical for the class; exact tank/pump specs vary by ' +
+      'service and are not pinned to one named brigade. Source: Fire appliances in the United Kingdom (Wikipedia).',
+  },
+  {
+    id: 'uk-alp-32m',
+    name: 'Aerial Ladder Platform (32 m)',
+    discipline: 'fire',
+    role: 'ladder',
+    roles: ['ladder'],
+    standard: 'UK Fire & Rescue NOG aerial appliance',
+    pumpGpm: 634, // London Fire Brigade cites 2,400 L/min through the monitor
+    pumpPsi: 100,
+    tankGallons: 0, // draws from a pump appliance's supply; no onboard tank
+    aerialFeet: 105, // 32 m, the common mid-reach ALP; some services run 42 m units
+    crew: 2,
+    minCrew: 2,
+    roadTimeFactor: 1.15,
+    offRoad: false,
+    cost: 1_250_000,
+    callsignPrefix: 'Aerial',
+    description:
+      'Turntable/platform aerial carried by most UK metropolitan and county services, usually one or two per fleet rather than ' +
+      'one per station. Height and flow follow Dorset & Wiltshire FRS\'s published fleet (32 m and 42 m units) and London Fire ' +
+      'Brigade\'s published aerial flow rate (2,400 L/min).',
+  },
+  {
+    id: 'uk-water-carrier',
+    name: 'Water Carrier',
+    discipline: 'fire',
+    role: 'tanker',
+    roles: ['tanker'],
+    standard: 'UK Fire & Rescue NOG bulk water appliance',
+    // UK bulk carriers run anywhere from ~3,000-11,000 L depending on the
+    // service; this models a mid-size one and isn't pinned to a confirmed
+    // unit the way the figures above are.
+    pumpGpm: 66,
+    pumpPsi: 100,
+    tankGallons: 2377, // ~9,000 L
+    crew: 1,
+    minCrew: 1,
+    roadTimeFactor: 1.3,
+    offRoad: false,
+    cost: 260_000,
+    callsignPrefix: 'Water Carrier',
+    description:
+      'Bulk water support appliance for areas without reliable hydrant pressure — a mid-size estimate for the class; UK services ' +
+      "run these anywhere from about 3,000 to 11,000 L and this isn't tied to one specific service's unit.",
+  },
+  {
+    id: 'uk-police-response',
+    name: 'Police Response Car',
+    discipline: 'police',
+    role: 'patrol',
+    roles: ['patrol'],
+    pumpGpm: 0,
+    tankGallons: 0,
+    crew: 2, // UK marked response cars are normally double-crewed
+    minCrew: 1,
+    roadTimeFactor: 0.8,
+    offRoad: false,
+    cost: 55_000,
+    callsignPrefix: 'Unit',
+    description: 'Marked UK police response vehicle, typically double-crewed, ANPR and MDT equipped.',
+  },
+  {
+    id: 'eu-hlf20',
+    name: 'HLF 20',
+    discipline: 'fire',
+    role: 'engine',
+    roles: ['engine', 'rescue'],
+    standard: 'DIN 14530 Hilfeleistungslöschgruppenfahrzeug',
+    pumpGpm: 528, // 2,000 L/min @ 10 bar
+    pumpPsi: 145,
+    tankGallons: 423, // 1,600 L
+    crew: 9, // DIN-standard Gruppe: 1 Gruppenführer + 8
+    minCrew: 6,
+    roadTimeFactor: 1.0,
+    offRoad: false,
+    cost: 520_000,
+    callsignPrefix: 'HLF',
+    description:
+      'German-standard combination pump/rescue engine (Hilfeleistungslöschgruppenfahrzeug), carrying both a fire pump and full ' +
+      'technical-rescue/extrication gear. Pump and tank figures are DIN 14530\'s own spec for the HLF 20; most brigades using this ' +
+      'class across continental Europe staff it below the full 9-person DIN complement.',
+  },
+  {
+    id: 'eu-dlk23',
+    name: 'DLK 23',
+    discipline: 'fire',
+    role: 'ladder',
+    roles: ['ladder'],
+    standard: 'DIN 14701 Drehleiter',
+    pumpGpm: 0,
+    tankGallons: 0,
+    aerialFeet: 75, // 23 m turntable ladder
+    crew: 3, // standard German Staffel for a Drehleiter
+    minCrew: 2,
+    roadTimeFactor: 1.15,
+    offRoad: false,
+    cost: 1_000_000,
+    callsignPrefix: 'DLK',
+    description:
+      'German-standard turntable ladder (Drehleiter mit Rettungskorb) — a dry aerial with a rescue cage, no onboard pump or tank; ' +
+      'it works alongside an HLF or LF pump engine on scene.',
+  },
+  {
+    id: 'au-cfa-tanker-medium',
+    name: 'Medium Tanker (4x4)',
+    discipline: 'fire',
+    role: 'brush',
+    roles: ['brush', 'engine'],
+    pumpGpm: 119, // pump-and-roll canopy spray system, typical for the class
+    pumpPsi: 100,
+    tankGallons: 621, // 2,350 L
+    crew: 5,
+    minCrew: 2,
+    roadTimeFactor: 1.1,
+    offRoad: true,
+    cost: 320_000,
+    callsignPrefix: 'Tanker',
+    description:
+      "Victorian CFA-style volunteer brigade tanker: 4x4, crew-protection spray system for in-vehicle firefighting, transports " +
+      "a crew of five. Water capacity is CFA's own published figure for its current medium tanker fleet " +
+      '(news.cfa.vic.gov.au, "CFA celebrates three new tankers").',
+  },
+  {
+    id: 'au-cfa-tanker-heavy',
+    name: 'Heavy Tanker (15 t, 4x4)',
+    discipline: 'fire',
+    role: 'brush',
+    roles: ['brush', 'engine'],
+    pumpGpm: 185,
+    pumpPsi: 100,
+    tankGallons: 1057, // 4,000 L
+    crew: 6,
+    minCrew: 2,
+    roadTimeFactor: 1.25,
+    offRoad: true,
+    cost: 450_000,
+    callsignPrefix: 'Tanker',
+    description:
+      '15-tonne crew-cab 4x4 tanker with roll cage and heat-protection curtains, for brigades covering heavier forest fuel loads. ' +
+      "Water capacity is CFA's own published figure for its current heavy tanker fleet (news.cfa.vic.gov.au, " +
+      '"New heavy tankers announced for CFA brigades").',
   },
 
   // ── EMS ───────────────────────────────────────────────────────────────

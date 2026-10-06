@@ -61,23 +61,97 @@ export function pointAlongPath(path: LatLng[], cumDist: number[], distanceM: num
   return { lat: a.lat + (b.lat - a.lat) * f, lng: a.lng + (b.lng - a.lng) * f };
 }
 
-/** Where a unit on `trip` is at sim time `t`. Constant speed between departAt and arriveAt. */
+/**
+ * Per-vertex cumulative time (ms), built from per-segment weights in any
+ * consistent unit (seconds of real road duration, or meters as a
+ * distance-proportional/constant-speed stand-in), rescaled so the total
+ * always equals `totalMs` exactly — a trip's own pacing (turnout,
+ * lights-and-siren vs. legal-speed, etc.) can change its total duration
+ * without changing the road's shape. Missing or non-positive weights fall
+ * back to that segment's share of the total distance.
+ */
+export function buildCumTime(cumDist: number[], weights: (number | undefined)[] | undefined, totalMs: number): number[] {
+  const segCount = cumDist.length - 1;
+  if (segCount <= 0) return [0];
+  const w: number[] = new Array(segCount);
+  for (let i = 0; i < segCount; i++) {
+    const own = weights?.[i];
+    w[i] = own !== undefined && own > 0 ? own : Math.max(cumDist[i + 1]! - cumDist[i]!, 1e-9);
+  }
+  const total = w.reduce((a, b) => a + b, 0);
+  const cumTime = [0];
+  let acc = 0;
+  for (let i = 0; i < segCount; i++) {
+    acc += w[i]!;
+    cumTime.push(total > 0 ? (acc / total) * totalMs : ((i + 1) / segCount) * totalMs);
+  }
+  return cumTime;
+}
+
+/**
+ * `trip.cumTime`, or a fallback built on the fly for a trip that doesn't
+ * have one — a save persisted before cumTime existed, loaded after an
+ * update. Falls back to the original constant-speed split (store.ts's
+ * migration patches these up properly on load; this is insurance against
+ * any trip that slips through some other way) rather than crashing the
+ * whole app on a stale save.
+ */
+function effectiveCumTime(trip: Trip): number[] {
+  return trip.cumTime ?? buildCumTime(trip.cumDist, undefined, Math.max(1, trip.arriveAt - trip.departAt));
+}
+
+/** Segment index `i` (so `t` falls between `path[i]` and `path[i+1]`) + the local fraction within it. */
+function tripSegment(trip: Trip, t: number): { i: number; f: number; cumTime: number[] } {
+  const cumTime = effectiveCumTime(trip);
+  const elapsed = Math.min(cumTime.at(-1) ?? 0, Math.max(0, t - trip.departAt));
+  if (cumTime.length < 2) return { i: 0, f: 0, cumTime };
+  let lo = 0;
+  let hi = cumTime.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (cumTime[mid]! <= elapsed) lo = mid;
+    else hi = mid;
+  }
+  const segLen = cumTime[hi]! - cumTime[lo]!;
+  return { i: lo, f: segLen === 0 ? 0 : (elapsed - cumTime[lo]!) / segLen, cumTime };
+}
+
+/**
+ * Where a unit on `trip` is at sim time `t`. Speed can vary segment to
+ * segment (see `Trip.cumTime` — a real road route's segments are timed from
+ * its own per-segment data, not one flat trip-average), interpolated
+ * linearly within whichever segment `t` currently falls in.
+ */
 export function tripPosition(trip: Trip, t: number): LatLng {
-  const total = trip.cumDist.at(-1) ?? 0;
   if (t <= trip.departAt) return trip.path[0]!;
   if (t >= trip.arriveAt) return trip.path.at(-1)!;
-  const f = (t - trip.departAt) / (trip.arriveAt - trip.departAt);
-  return pointAlongPath(trip.path, trip.cumDist, total * f);
+  const { i, f } = tripSegment(trip, t);
+  const a = trip.path[i]!;
+  const b = trip.path[Math.min(i + 1, trip.path.length - 1)]!;
+  return { lat: a.lat + (b.lat - a.lat) * f, lng: a.lng + (b.lng - a.lng) * f };
 }
 
 /** Remaining portion of a trip's path from sim time `t` (used to draw route lines). */
 export function remainingPath(trip: Trip, t: number): LatLng[] {
-  const total = trip.cumDist.at(-1) ?? 0;
   if (t <= trip.departAt) return trip.path;
-  const f = Math.min(1, (t - trip.departAt) / Math.max(1, trip.arriveAt - trip.departAt));
-  const d = total * f;
-  const rest = trip.path.filter((_, i) => trip.cumDist[i]! > d);
-  return [pointAlongPath(trip.path, trip.cumDist, d), ...rest];
+  const { i, f } = tripSegment(trip, t);
+  const a = trip.path[i]!;
+  const b = trip.path[Math.min(i + 1, trip.path.length - 1)]!;
+  const here = { lat: a.lat + (b.lat - a.lat) * f, lng: a.lng + (b.lng - a.lng) * f };
+  return [here, ...trip.path.slice(i + 1)];
+}
+
+/**
+ * The road segment a trip is on right now — [distanceM, durationSec] — for a
+ * live, locally-accurate speed reading (see `unitSpeedMph`) instead of one
+ * flat trip-average.
+ */
+export function tripCurrentSegment(trip: Trip, t: number): [number, number] {
+  const { i, cumTime } = tripSegment(trip, t);
+  const j = Math.min(i + 1, trip.path.length - 1);
+  const distM = trip.cumDist[j]! - trip.cumDist[i]!;
+  const timeMs = cumTime[j]! - cumTime[i]!;
+  return [distM, timeMs / 1000];
 }
 
 export function formatDistance(meters: number): string {

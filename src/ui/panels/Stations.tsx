@@ -23,10 +23,12 @@ export function StationsTab() {
 function StationList() {
   const stations = useStore((s) => s.game.stations);
   const units = useStore((s) => s.game.units);
+  const dispatchCenters = useStore((s) => s.game.dispatchCenters);
   const selectStation = useStore((s) => s.selectStation);
   const startPlacing = useStore((s) => s.startPlacing);
   const flyTo = useStore((s) => s.flyTo);
   const list = Object.values(stations);
+  const centerCount = Object.keys(dispatchCenters).length;
   return (
     <div>
       {list.length === 0 ? (
@@ -50,7 +52,10 @@ function StationList() {
                   <span className={`station-dot mk-${st.discipline}`} aria-hidden="true" />
                   <span className="grow">
                     <strong>{st.name}</strong>
-                    <span className="muted small block">{st.address}</span>
+                    <span className="muted small block">
+                      {st.address}
+                      {centerCount > 1 && <> · {dispatchCenters[st.centerId]?.name ?? 'Dispatch center'}</>}
+                    </span>
                   </span>
                   <span className="small right">
                     {home}/{own.length}
@@ -80,6 +85,10 @@ function StationDetail({ stationId }: { stationId: string }) {
   const station = game.stations[stationId]!;
   const units = Object.values(game.units).filter((u) => u.stationId === stationId);
   const allHome = units.every((u) => u.status === 'in_quarters');
+  const center = game.dispatchCenters[station.centerId];
+  const centerMates = Object.values(game.stations).filter(
+    (st) => st.centerId === station.centerId && st.id !== station.id,
+  ).length;
 
   return (
     <div className="detail">
@@ -128,6 +137,13 @@ function StationDetail({ stationId }: { stationId: string }) {
       <p className="muted small">
         {DISCIPLINE_LABEL[station.discipline]} station
         {station.discipline !== 'police' && <> · turnout {formatDuration(TURNOUT_SECONDS[station.staffing])}</>}
+        {center && (
+          <>
+            {' '}
+            · {center.name}
+            {centerMates > 0 ? ` (shares calls & units with ${centerMates} other station${centerMates > 1 ? 's' : ''})` : ' (own dispatch center)'}
+          </>
+        )}
       </p>
 
       <section>

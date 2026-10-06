@@ -17,3 +17,6 @@ export function formatDuration(sec: number): string {
 }
 
 export const formatNumber = (n: number) => n.toLocaleString('en-US');
+
+/** "42 mph" */
+export const formatSpeed = (mph: number) => `${Math.round(mph)} mph`;

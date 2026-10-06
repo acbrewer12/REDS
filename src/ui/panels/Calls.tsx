@@ -1,20 +1,13 @@
 import { useState } from 'react';
 import { getSpec } from '../../sim/data/apparatus';
 import { getMissionType } from '../../sim/data/missions';
-import {
-  estimateRoute,
-  etaSeconds,
-  isAvailable,
-  missionUnits,
-  turnoutSeconds,
-  unitPosition,
-} from '../../sim/engine';
-import { formatDistance, haversineMeters } from '../../sim/geo';
-import { describeShortfall, matchRequirements, rankCandidates, recommendUnits } from '../../sim/requirements';
-import type { GameState, Mission, Unit } from '../../sim/types';
+import { candidatesForMission, missionUnits, turnoutSeconds, unitSpeedMph } from '../../sim/engine';
+import { formatDistance } from '../../sim/geo';
+import { describeShortfall, matchRequirements, recommendUnits } from '../../sim/requirements';
+import type { Mission } from '../../sim/types';
 import { useStore } from '../../store';
 import { MissionChip, specSummary, UNIT_STATUS, UnitChip } from '../common';
-import { formatClock, formatDuration } from '../format';
+import { formatClock, formatDuration, formatSpeed } from '../format';
 
 const STATUS_ORDER: Record<Mission['status'], number> = {
   resolved: 0,
@@ -109,24 +102,6 @@ function MissionList() {
   );
 }
 
-interface Candidate {
-  unit: Unit;
-  etaSec: number;
-  distanceM: number;
-}
-
-/** Available units, closest (by estimated ETA) first, then best-suited. */
-function availableCandidates(game: GameState, mission: Mission): Candidate[] {
-  const candidates = Object.values(game.units)
-    .filter(isAvailable)
-    .map((unit) => {
-      const from = unitPosition(unit, game.clock);
-      const route = estimateRoute(from, mission.position);
-      return { unit, etaSec: etaSeconds(game, unit, route), distanceM: haversineMeters(from, mission.position) };
-    });
-  return rankCandidates(getMissionType(mission.typeId), candidates);
-}
-
 function MissionDetail({ missionId }: { missionId: string }) {
   const game = useStore((s) => s.game);
   const busy = useStore((s) => s.ui.busy);
@@ -144,7 +119,7 @@ function MissionDetail({ missionId }: { missionId: string }) {
   const onScene = assigned.filter((u) => u.status === 'on_scene');
   const sceneResult = matchRequirements(type, onScene);
   const assignedResult = matchRequirements(type, assigned);
-  const candidates = availableCandidates(game, mission);
+  const candidates = candidatesForMission(game, mission);
   const firstDue = game.stations[mission.stationId];
   const canDispatch = mission.status !== 'resolved';
 
@@ -215,6 +190,10 @@ function MissionDetail({ missionId }: { missionId: string }) {
       <p className="muted small">
         Received {formatClock(game.epoch + mission.createdAt)} ({formatDuration((game.clock - mission.createdAt) / 1000)} ago)
         {firstDue && <> · {firstDue.name} first-due</>}
+        {' · '}
+        <span className={type.emergencyResponse === false ? 'response-mode routine' : 'response-mode hot'}>
+          {type.emergencyResponse === false ? 'Routine response' : 'Code 3 — lights & siren'}
+        </span>
       </p>
 
       <section>
@@ -306,10 +285,11 @@ function MissionDetail({ missionId }: { missionId: string }) {
                   <strong>{u.callsign}</strong>
                   <span className="muted small block">{getSpec(u.specId).name}</span>
                 </span>
-                <span className="small muted">
+                <span className="small muted right">
                   {u.trip && (u.status === 'en_route' || u.status === 'dispatched')
                     ? `ETA ${formatDuration((u.trip.arriveAt - game.clock) / 1000)}`
                     : UNIT_STATUS[u.status].label}
+                  {u.status === 'en_route' && <span className="block">{formatSpeed(unitSpeedMph(u, game.clock))}</span>}
                 </span>
                 {mission.status !== 'resolved' && (
                   <button
