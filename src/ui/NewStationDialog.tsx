@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { getSpec } from '../sim/data/apparatus';
-import { FLEET_PRESETS, FLEET_PRESETS_BY_ID } from '../sim/data/presets';
+import { FLEET_PRESET_REGIONS, FLEET_PRESETS, FLEET_PRESETS_BY_ID } from '../sim/data/presets';
 import { nearestDispatchCenter } from '../sim/engine';
 import type { Discipline, StaffingModel } from '../sim/types';
 import { useStore } from '../store';
@@ -75,10 +75,14 @@ function Form() {
         <label className="field">
           <span>Starting fleet</span>
           <select value={presetId} onChange={(e) => choosePreset(e.target.value)}>
-            {FLEET_PRESETS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
+            {FLEET_PRESET_REGIONS.map((region) => (
+              <optgroup key={region} label={region}>
+                {FLEET_PRESETS.filter((p) => p.region === region).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </label>
@@ -101,7 +105,7 @@ function Form() {
           <label className="field">
             <span>Type</span>
             <select value={discipline} onChange={(e) => setDiscipline(e.target.value as Discipline)}>
-              {(['fire', 'police'] as Discipline[]).map((d) => (
+              {(['fire', 'police', 'ems'] as Discipline[]).map((d) => (
                 <option key={d} value={d}>
                   {DISCIPLINE_LABEL[d]}
                 </option>

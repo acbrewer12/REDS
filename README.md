@@ -103,7 +103,21 @@ Turn on **Auto-dispatch** in ⚙ settings (off by default) and every open call i
 
 **Salem Police Department** (`salem-pd` preset) is also real, sourced data: station at 500 North Jackson St, Salem, MO 65560, Chief Joe Chase, 12 sworn officers (Missouri UCR/NIBRS, ORI MO0330100), serving a population of 4,736. The in-game fleet starts at the one patrol car the department actually runs; growing it to 2–6 patrol units is realistic for a department this size, anything bigger (SWAT, K9, federal-scale units) is not.
 
-The `rural-fire-basic`, `career-fire`, and `small-town-pd` presets remain generic, not tied to a real department. To edit any of this, change `src/sim/data/presets.ts` / `data/apparatus.ts`, or rename units in-game (click a callsign on the station screen). The station address isn't hardcoded: you place it yourself on the map.
+The `rural-fire-basic`, `career-fire`, `small-town-pd`, `sheriff-office`, and `ems-ambulance-service` presets remain generic, not tied to a real department. To edit any of this, change `src/sim/data/presets.ts` / `data/apparatus.ts`, or rename units in-game (click a callsign on the station screen). The station address isn't hardcoded: you place it yourself anywhere on the real map — including outside the US.
+
+## Presets and apparatus around the world
+
+The station address was never hardcoded — you could already search any address or click anywhere on the real map. What was missing was a *starting fleet* that fit a department outside the US. The "Starting fleet" picker now groups presets by region:
+
+| Region | Presets | Apparatus basis |
+| --- | --- | --- |
+| **US** | Dent County FPD, Salem PD | Real, sourced department rosters — see above. |
+| **US generic** | Rural fire station, career fire station, small-town PD, sheriff's office, EMS/ambulance service | NWCG/NFPA-standard apparatus, not a named department. |
+| **UK** | Fire & Rescue station, police response team | Appliance classes UK Fire & Rescue Services actually run — Water Tender Ladder / Rescue Pump, Aerial Ladder Platform (105 ft / 32 m) — sourced from [Fire appliances in the United Kingdom](https://en.wikipedia.org/wiki/Fire_appliances_in_the_United_Kingdom) and London Fire Brigade's published aerial flow rate. Not tied to a named brigade; the bulk water carrier's tank size is a mid-range estimate (UK services run 3,000–11,000 L) flagged as such in `apparatus.ts`. |
+| **EU** | Fire brigade (continental Europe) | **HLF 20** and **DLK 23**, the DIN 14530 / DIN 14701 standard pump-rescue engine and turntable ladder used across German-speaking Europe — crew, tank, and pump figures are the DIN spec's own numbers, not an estimate. |
+| **AU/NZ** | Rural fire brigade | CFA (Country Fire Authority, Victoria)-style volunteer tanker — tank capacity is CFA's own published figure for its current medium and heavy tanker fleet ([news.cfa.vic.gov.au](https://news.cfa.vic.gov.au/)). |
+
+None of these international presets are a specific real, named department the way Dent County FPD and Salem PD are — there's no dataset of every fire/police station on Earth, and this game models departments one preset (or one placed station) at a time, same as it always has. What's new is that the *apparatus* backing each regional preset is each country's own real, cited standard rather than a US type relabeled. A station placed anywhere in the world, with any preset, still gets its own independent dispatch center unless you explicitly join it to a nearby one.
 
 ## Map services
 

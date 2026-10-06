@@ -583,6 +583,176 @@ export const APPARATUS: ApparatusSpec[] = [
     description: 'Rural / county patrol pickup — slower than the utility on pavement, but gets down gravel and field roads.',
   },
 
+  // ── International apparatus ──────────────────────────────────────────
+  // Generic apparatus built from each country/region's own published
+  // standard, not one named department's roster (the way the Dent County
+  // FPD / Salem PD units above are) — the same relationship rural-fire-basic
+  // and career-fire have to the NWCG/NFPA rows earlier in this file. Figures
+  // are converted to this file's US units (gpm, gal, ft) and rounded.
+  {
+    id: 'uk-pump-wrl',
+    name: 'Water Tender Ladder / Rescue Pump',
+    discipline: 'fire',
+    role: 'engine',
+    roles: ['engine', 'rescue'],
+    standard: 'UK Fire & Rescue NOG pump appliance',
+    pumpGpm: 660, // ~2,500 L/min @ 10 bar, typical UK main pump output
+    pumpPsi: 145,
+    tankGallons: 475, // ~1,800 L
+    crew: 5,
+    minCrew: 4,
+    roadTimeFactor: 1.0,
+    offRoad: false,
+    cost: 480_000,
+    callsignPrefix: 'Pump',
+    description:
+      'UK wholetime/on-call pump appliance (Water Tender Ladder / Rescue Pump), riding crew of 4-6, short extension ladder, ' +
+      'and — on the "Rescue Pump" variant — extrication gear. Figures are typical for the class; exact tank/pump specs vary by ' +
+      'service and are not pinned to one named brigade. Source: Fire appliances in the United Kingdom (Wikipedia).',
+  },
+  {
+    id: 'uk-alp-32m',
+    name: 'Aerial Ladder Platform (32 m)',
+    discipline: 'fire',
+    role: 'ladder',
+    roles: ['ladder'],
+    standard: 'UK Fire & Rescue NOG aerial appliance',
+    pumpGpm: 634, // London Fire Brigade cites 2,400 L/min through the monitor
+    pumpPsi: 100,
+    tankGallons: 0, // draws from a pump appliance's supply; no onboard tank
+    aerialFeet: 105, // 32 m, the common mid-reach ALP; some services run 42 m units
+    crew: 2,
+    minCrew: 2,
+    roadTimeFactor: 1.15,
+    offRoad: false,
+    cost: 1_250_000,
+    callsignPrefix: 'Aerial',
+    description:
+      'Turntable/platform aerial carried by most UK metropolitan and county services, usually one or two per fleet rather than ' +
+      'one per station. Height and flow follow Dorset & Wiltshire FRS\'s published fleet (32 m and 42 m units) and London Fire ' +
+      'Brigade\'s published aerial flow rate (2,400 L/min).',
+  },
+  {
+    id: 'uk-water-carrier',
+    name: 'Water Carrier',
+    discipline: 'fire',
+    role: 'tanker',
+    roles: ['tanker'],
+    standard: 'UK Fire & Rescue NOG bulk water appliance',
+    // UK bulk carriers run anywhere from ~3,000-11,000 L depending on the
+    // service; this models a mid-size one and isn't pinned to a confirmed
+    // unit the way the figures above are.
+    pumpGpm: 66,
+    pumpPsi: 100,
+    tankGallons: 2377, // ~9,000 L
+    crew: 1,
+    minCrew: 1,
+    roadTimeFactor: 1.3,
+    offRoad: false,
+    cost: 260_000,
+    callsignPrefix: 'Water Carrier',
+    description:
+      'Bulk water support appliance for areas without reliable hydrant pressure — a mid-size estimate for the class; UK services ' +
+      "run these anywhere from about 3,000 to 11,000 L and this isn't tied to one specific service's unit.",
+  },
+  {
+    id: 'uk-police-response',
+    name: 'Police Response Car',
+    discipline: 'police',
+    role: 'patrol',
+    roles: ['patrol'],
+    pumpGpm: 0,
+    tankGallons: 0,
+    crew: 2, // UK marked response cars are normally double-crewed
+    minCrew: 1,
+    roadTimeFactor: 0.8,
+    offRoad: false,
+    cost: 55_000,
+    callsignPrefix: 'Unit',
+    description: 'Marked UK police response vehicle, typically double-crewed, ANPR and MDT equipped.',
+  },
+  {
+    id: 'eu-hlf20',
+    name: 'HLF 20',
+    discipline: 'fire',
+    role: 'engine',
+    roles: ['engine', 'rescue'],
+    standard: 'DIN 14530 Hilfeleistungslöschgruppenfahrzeug',
+    pumpGpm: 528, // 2,000 L/min @ 10 bar
+    pumpPsi: 145,
+    tankGallons: 423, // 1,600 L
+    crew: 9, // DIN-standard Gruppe: 1 Gruppenführer + 8
+    minCrew: 6,
+    roadTimeFactor: 1.0,
+    offRoad: false,
+    cost: 520_000,
+    callsignPrefix: 'HLF',
+    description:
+      'German-standard combination pump/rescue engine (Hilfeleistungslöschgruppenfahrzeug), carrying both a fire pump and full ' +
+      'technical-rescue/extrication gear. Pump and tank figures are DIN 14530\'s own spec for the HLF 20; most brigades using this ' +
+      'class across continental Europe staff it below the full 9-person DIN complement.',
+  },
+  {
+    id: 'eu-dlk23',
+    name: 'DLK 23',
+    discipline: 'fire',
+    role: 'ladder',
+    roles: ['ladder'],
+    standard: 'DIN 14701 Drehleiter',
+    pumpGpm: 0,
+    tankGallons: 0,
+    aerialFeet: 75, // 23 m turntable ladder
+    crew: 3, // standard German Staffel for a Drehleiter
+    minCrew: 2,
+    roadTimeFactor: 1.15,
+    offRoad: false,
+    cost: 1_000_000,
+    callsignPrefix: 'DLK',
+    description:
+      'German-standard turntable ladder (Drehleiter mit Rettungskorb) — a dry aerial with a rescue cage, no onboard pump or tank; ' +
+      'it works alongside an HLF or LF pump engine on scene.',
+  },
+  {
+    id: 'au-cfa-tanker-medium',
+    name: 'Medium Tanker (4x4)',
+    discipline: 'fire',
+    role: 'brush',
+    roles: ['brush', 'engine'],
+    pumpGpm: 119, // pump-and-roll canopy spray system, typical for the class
+    pumpPsi: 100,
+    tankGallons: 621, // 2,350 L
+    crew: 5,
+    minCrew: 2,
+    roadTimeFactor: 1.1,
+    offRoad: true,
+    cost: 320_000,
+    callsignPrefix: 'Tanker',
+    description:
+      "Victorian CFA-style volunteer brigade tanker: 4x4, crew-protection spray system for in-vehicle firefighting, transports " +
+      "a crew of five. Water capacity is CFA's own published figure for its current medium tanker fleet " +
+      '(news.cfa.vic.gov.au, "CFA celebrates three new tankers").',
+  },
+  {
+    id: 'au-cfa-tanker-heavy',
+    name: 'Heavy Tanker (15 t, 4x4)',
+    discipline: 'fire',
+    role: 'brush',
+    roles: ['brush', 'engine'],
+    pumpGpm: 185,
+    pumpPsi: 100,
+    tankGallons: 1057, // 4,000 L
+    crew: 6,
+    minCrew: 2,
+    roadTimeFactor: 1.25,
+    offRoad: true,
+    cost: 450_000,
+    callsignPrefix: 'Tanker',
+    description:
+      '15-tonne crew-cab 4x4 tanker with roll cage and heat-protection curtains, for brigades covering heavier forest fuel loads. ' +
+      "Water capacity is CFA's own published figure for its current heavy tanker fleet (news.cfa.vic.gov.au, " +
+      '"New heavy tankers announced for CFA brigades").',
+  },
+
   // ── EMS ───────────────────────────────────────────────────────────────
   {
     id: 'ambulance-als',

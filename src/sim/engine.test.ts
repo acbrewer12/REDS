@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { FLEET_PRESETS_BY_ID } from './data/presets';
+import { getSpec } from './data/apparatus';
+import { FLEET_PRESETS, FLEET_PRESETS_BY_ID } from './data/presets';
 import {
   addDispatchCenter,
   addMission,
@@ -336,5 +337,39 @@ describe('engine — multi-region dispatch centers (Milestone 2)', () => {
         mulberry32(3),
       ),
     ).toThrow();
+  });
+});
+
+describe('engine — fleet presets (every region)', () => {
+  it('resolves every unit in every preset to a real apparatus spec', () => {
+    for (const preset of FLEET_PRESETS) {
+      for (const u of preset.units) expect(() => getSpec(u.specId), `${preset.id}: ${u.callsign}`).not.toThrow();
+    }
+  });
+
+  it('every non-empty preset is coverable by its own fleet and only generates matching-discipline calls', () => {
+    for (const preset of FLEET_PRESETS) {
+      if (preset.units.length === 0) continue;
+      const rng = mulberry32(5);
+      const { state: withCenter, centerId } = addDispatchCenter(createGame(0), `${preset.id} Dispatch`);
+      let { state, stationId } = addStation(
+        withCenter,
+        {
+          name: preset.stationName,
+          discipline: preset.discipline,
+          address: 'test',
+          position: SALEM,
+          staffing: preset.staffing,
+          responseRadiusKm: preset.responseRadiusKm,
+          centerId,
+        },
+        rng,
+      );
+      for (const u of preset.units) state = addUnit(state, stationId, u.specId, u.callsign);
+
+      const types = eligibleMissionTypes(state, state.stations[stationId]!);
+      expect(types.length, `${preset.id} should be able to generate at least one call type`).toBeGreaterThan(0);
+      for (const t of types) expect(t.discipline, `${preset.id}: ${t.id}`).toBe(preset.discipline);
+    }
   });
 });
