@@ -3,9 +3,10 @@ import { Circle, MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip, useM
 import type { LatLngTuple } from 'leaflet';
 import { getMissionType } from '../../sim/data/missions';
 import { remainingPath } from '../../sim/geo';
-import { unitPosition } from '../../sim/engine';
+import { missionUnits, unitPosition, unitSpeedMph } from '../../sim/engine';
 import type { Discipline, LatLng, Unit } from '../../sim/types';
 import { useStore, type BaseLayer } from '../../store';
+import { formatSpeed } from '../format';
 import { missionIcon, searchIcon, shortCallsign, stationIcon, unitIcon } from './icons';
 
 /** Salem, MO — default view until the player has a station. */
@@ -56,6 +57,58 @@ export function MapView() {
         <UnitLayer />
         <SearchPin />
       </MapContainer>
+      <SpeedHud />
+    </div>
+  );
+}
+
+/**
+ * Live speedometer HUD pinned over the map. Tracks the fastest currently
+ * moving unit assigned to the selected call, or — with no call selected —
+ * the fastest moving unit anywhere, so there's always something to watch
+ * right after a dispatch. Hidden whenever nothing is actually rolling.
+ */
+function SpeedHud() {
+  const game = useStore((s) => s.game);
+  const selectedMissionId = useStore((s) => s.ui.selectedMissionId);
+  const mission = selectedMissionId ? game.missions[selectedMissionId] : null;
+  const pool = mission ? missionUnits(game, mission) : Object.values(game.units);
+  const moving = pool
+    .map((unit) => ({ unit, speedMph: unitSpeedMph(unit, game.clock) }))
+    .filter((u) => u.speedMph > 0)
+    .sort((a, b) => b.speedMph - a.speedMph);
+  if (moving.length === 0) return null;
+  const lead = moving[0]!;
+
+  const GAUGE_MAX_MPH = 80;
+  const pct = Math.min(1, lead.speedMph / GAUGE_MAX_MPH);
+  const theta = ((180 - pct * 180) * Math.PI) / 180;
+  const needle: LatLngTuple = [60 + 42 * Math.cos(theta), 65 - 42 * Math.sin(theta)];
+  const ARC_LEN = Math.PI * 50;
+
+  return (
+    <div className="speed-hud" role="status" aria-label={`${lead.unit.callsign} ${formatSpeed(lead.speedMph)}`}>
+      <svg viewBox="0 0 120 70" width="104" height="61" aria-hidden="true">
+        <path d="M10 65 A50 50 0 0 1 110 65" fill="none" stroke="var(--border)" strokeWidth="8" strokeLinecap="round" />
+        <path
+          d="M10 65 A50 50 0 0 1 110 65"
+          fill="none"
+          stroke="var(--orange)"
+          strokeWidth="8"
+          strokeLinecap="round"
+          strokeDasharray={`${pct * ARC_LEN} ${ARC_LEN}`}
+        />
+        <line x1={60} y1={65} x2={needle[0]} y2={needle[1]} stroke="#fff" strokeWidth="2.5" strokeLinecap="round" />
+        <circle cx={60} cy={65} r={4} fill="#fff" />
+      </svg>
+      <div className="speed-hud-reading">
+        <strong>{Math.round(lead.speedMph)}</strong>
+        <span>mph</span>
+      </div>
+      <div className="speed-hud-label">
+        {lead.unit.callsign}
+        {moving.length > 1 && ` +${moving.length - 1}`}
+      </div>
     </div>
   );
 }
@@ -191,6 +244,7 @@ function UnitLayer() {
           key={u.id}
           unit={u}
           position={unitPosition(u, clock)}
+          speedMph={unitSpeedMph(u, clock)}
           offset={offsets.get(u.id)}
           onClick={() => (u.missionId ? selectMission(u.missionId) : selectStation(u.stationId))}
         />
@@ -202,11 +256,13 @@ function UnitLayer() {
 function UnitMarker({
   unit,
   position,
+  speedMph,
   offset,
   onClick,
 }: {
   unit: Unit;
   position: LatLng;
+  speedMph: number;
   offset?: [number, number];
   onClick: () => void;
 }) {
@@ -215,6 +271,7 @@ function UnitMarker({
     <Marker position={tuple(position)} icon={icon} zIndexOffset={800} eventHandlers={{ click: onClick }}>
       <Tooltip direction="top" offset={[(offset?.[0] ?? 0), (offset?.[1] ?? 0) - 12]}>
         {unit.callsign}
+        {speedMph > 0 && <span className="tooltip-speed"> · {formatSpeed(speedMph)}</span>}
       </Tooltip>
     </Marker>
   );

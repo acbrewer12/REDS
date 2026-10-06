@@ -20,6 +20,7 @@ import {
   stationsInCenter,
   tick,
   unitPosition,
+  unitSpeedMph,
   unitsInCenter,
 } from './engine';
 import { haversineMeters } from './geo';
@@ -126,6 +127,34 @@ describe('engine — single-station loop', () => {
     state = runUntil(state, (s) => s.units[brush.id]!.status === 'in_quarters');
     expect(state.units[brush.id]!.position).toEqual(SALEM);
     expect(state.units[brush.id]!.missionId).toBeNull();
+  });
+
+  it('reports a unit\'s live speed only while it is actually rolling', () => {
+    let { state, stationId } = setup();
+    const added = addMission(
+      state,
+      { stationId, typeId: 'grass-fire', position: SCENE, narrative: 'test', workRequiredSec: 600 },
+      'Hwy 32, Salem',
+    );
+    state = added.state;
+    const brush = unitBy(state, 'Brush 8018');
+    expect(unitSpeedMph(state.units[brush.id]!, state.clock)).toBe(0);
+
+    state = dispatchUnit(state, brush.id, added.missionId, estimateRoute(SALEM, SCENE));
+    // Still turning out at the station: not rolling yet.
+    expect(unitSpeedMph(state.units[brush.id]!, state.clock)).toBe(0);
+
+    state = tick(state, 301_000); // past the 5-minute volunteer turnout
+    expect(state.units[brush.id]!.status).toBe('en_route');
+    // The straight-line path drawn (no circuity) covered in the time
+    // budgeted for a circuity-inflated road distance, scaled by the unit's
+    // own road-time factor — same math `dispatchUnit`/`makeTrip` use.
+    const roadTimeFactor = getSpec(state.units[brush.id]!.specId).roadTimeFactor;
+    const expectedMph = haversineMeters(SALEM, SCENE) / (estimateRoute(SALEM, SCENE).carDurationSec * roadTimeFactor) / 0.44704;
+    expect(unitSpeedMph(state.units[brush.id]!, state.clock)).toBeCloseTo(expectedMph, 5);
+
+    state = runUntil(state, (s) => s.units[brush.id]!.status === 'on_scene');
+    expect(unitSpeedMph(state.units[brush.id]!, state.clock)).toBe(0);
   });
 
   it('pauses work when a required unit leaves the scene', () => {

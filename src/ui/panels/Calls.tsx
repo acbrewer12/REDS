@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { getSpec } from '../../sim/data/apparatus';
 import { getMissionType } from '../../sim/data/missions';
-import { candidatesForMission, missionUnits, turnoutSeconds } from '../../sim/engine';
+import { candidatesForMission, missionUnits, turnoutSeconds, unitSpeedMph } from '../../sim/engine';
 import { formatDistance } from '../../sim/geo';
 import { describeShortfall, matchRequirements, recommendUnits } from '../../sim/requirements';
 import type { Mission } from '../../sim/types';
 import { useStore } from '../../store';
 import { MissionChip, specSummary, UNIT_STATUS, UnitChip } from '../common';
-import { formatClock, formatDuration } from '../format';
+import { formatClock, formatDuration, formatSpeed } from '../format';
 
 const STATUS_ORDER: Record<Mission['status'], number> = {
   resolved: 0,
@@ -281,10 +281,11 @@ function MissionDetail({ missionId }: { missionId: string }) {
                   <strong>{u.callsign}</strong>
                   <span className="muted small block">{getSpec(u.specId).name}</span>
                 </span>
-                <span className="small muted">
+                <span className="small muted right">
                   {u.trip && (u.status === 'en_route' || u.status === 'dispatched')
                     ? `ETA ${formatDuration((u.trip.arriveAt - game.clock) / 1000)}`
                     : UNIT_STATUS[u.status].label}
+                  {u.status === 'en_route' && <span className="block">{formatSpeed(unitSpeedMph(u, game.clock))}</span>}
                 </span>
                 {mission.status !== 'resolved' && (
                   <button

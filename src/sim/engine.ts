@@ -104,6 +104,21 @@ export function unitPosition(unit: Unit, t: number): LatLng {
   return unit.trip ? tripPosition(unit.trip, t) : unit.position;
 }
 
+/**
+ * A moving unit's current road speed in mph, for display only — the
+ * simulation itself only needs average speed (constant across one trip; see
+ * `tripPosition`), so this is that same trip-average number, zero while the
+ * unit isn't actually rolling (turning out, on scene, in quarters).
+ */
+export function unitSpeedMph(unit: Unit, t: number): number {
+  const trip = unit.trip;
+  if (!trip || t < trip.departAt || t >= trip.arriveAt) return 0;
+  const distanceM = trip.cumDist.at(-1) ?? 0;
+  const durationSec = (trip.arriveAt - trip.departAt) / 1000;
+  if (durationSec <= 0) return 0;
+  return distanceM / durationSec / 0.44704; // m/s → mph
+}
+
 /** Units in quarters, or driving home, can take a new assignment. */
 export function isAvailable(unit: Unit): boolean {
   return unit.status === 'in_quarters' || unit.status === 'returning';

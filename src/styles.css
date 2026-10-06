@@ -968,6 +968,54 @@ input[type='checkbox'] {
 .leaflet-control-attribution {
   font-size: 10px;
 }
+.tooltip-speed {
+  color: var(--orange);
+}
+
+/* ── speedometer HUD ─────────────────────────────────────── */
+.speed-hud {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 14px 10px;
+  background: rgb(17 26 46 / 0.88);
+  backdrop-filter: blur(4px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.4);
+  pointer-events: none;
+}
+.speed-hud svg {
+  display: block;
+}
+.speed-hud-reading {
+  margin-top: -14px;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  line-height: 1;
+}
+.speed-hud-reading strong {
+  font-size: 26px;
+  font-variant-numeric: tabular-nums;
+}
+.speed-hud-reading span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.speed-hud-label {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ── mobile: map full-bleed, panel becomes a bottom sheet ── */
 @media (max-width: 760px) {
